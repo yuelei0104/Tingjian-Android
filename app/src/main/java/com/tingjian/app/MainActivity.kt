@@ -44,17 +44,20 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tingjian.app.ui.theme.TingjianTheme
+import com.tingjian.app.network.NetworkModule
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 // 真实会话只保存在设备内；示例记录单独标记。语音由设备识别和播报服务处理。
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NetworkModule.initialize(applicationContext)
         enableEdgeToEdge()
         setContent { TingjianTheme(dynamicColor = false) { TingjianApp() } }
     }
@@ -63,13 +66,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun TingjianApp() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val repository = remember { NetworkModule.repository }
     val preferences = remember { context.getSharedPreferences("tingjian_display", android.content.Context.MODE_PRIVATE) }
     var entered by remember { mutableStateOf(preferences.getBoolean("welcome_completed", false)) }
     var tab by remember { mutableIntStateOf(0) }
     var selected by remember { mutableStateOf<Conversation?>(null) }
     var showLogin by remember { mutableStateOf(false) }
     var showUsage by remember { mutableStateOf(false) }
-    var demoLoggedIn by remember { mutableStateOf(false) }
+    var demoLoggedIn by remember { mutableStateOf(repository.isLoggedIn()) }
     var large by remember { mutableStateOf(preferences.getBoolean("large_text", false)) }
     var voiceMode by remember { mutableStateOf(preferences.getString("voice_mode", "自动") ?: "自动") }
     var voiceStyle by remember { mutableStateOf(preferences.getString("voice_style", "自然") ?: "自然") }
@@ -191,8 +196,15 @@ private fun TingjianApp() {
                 2 -> HistoryScreen(allRecords, onOpen = { selected = it })
                 else -> ProfileScreen(large, savedRecords.size, voiceMode, voiceStyle,
                     demoLoggedIn = demoLoggedIn, onLogin = { showLogin = true },
-                    onLogout = { demoLoggedIn = false },
+                    onLogout = {
+                        scope.launch { repository.logout() }
+                        demoLoggedIn = false
+                    },
                     onDeleteAccount = {
+                        scope.launch {
+                            repository.clearAllData()
+                            repository.logout()
+                        }
                         demoLoggedIn = false
                         savedRecords.clear()
                         saveConversations(preferences, savedRecords)

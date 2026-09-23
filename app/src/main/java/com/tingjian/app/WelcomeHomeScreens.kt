@@ -176,7 +176,7 @@ internal fun HomeScreen(records: List<Conversation>, hasDraft: Boolean, demoLogg
         Spacer(Modifier.height(12.dp))
         if (!demoLoggedIn) {
             TextButton(onClick = onLogin) {
-                Text("体验登录界面  →", color = teal, fontSize = 13.sp)
+                Text("登录或注册  →", color = teal, fontSize = 13.sp)
             }
         }
         Spacer(Modifier.height(24.dp))

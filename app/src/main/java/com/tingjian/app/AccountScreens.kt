@@ -50,6 +50,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.tingjian.app.data.ApiResult
+import com.tingjian.app.network.NetworkModule
 
 @Composable
 internal fun UsageScreen(savedCount: Int, onBack: () -> Unit) {
@@ -106,34 +109,23 @@ internal fun UsageCard(title: String, value: String, progress: Float, note: Stri
 
 @Composable
 internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
-    var phone by remember { mutableStateOf("13800000000") }
-    var code by remember { mutableStateOf("") }
-    var issued by remember { mutableStateOf(false) }
-    var cooldown by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val repository = remember { NetworkModule.repository }
+    var registerMode by remember { mutableStateOf(false) }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
     var consent by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var legal by remember { mutableStateOf("") }
     var loginState by remember { mutableStateOf("idle") }
-    LaunchedEffect(cooldown) {
-        if (cooldown > 0) {
-            delay(1000)
-            cooldown--
-        }
-    }
-    LaunchedEffect(loginState) {
-        if (loginState == "loading") {
-            delay(700)
-            loginState = "success"
-            onLogin()
-        }
-    }
     if (legal.isNotEmpty()) {
         AlertDialog(onDismissRequest = { legal = "" },
-            title = { Text(if (legal == "terms") "用户协议（演示）" else "隐私政策（演示）") },
+            title = { Text(if (legal == "terms") "用户协议" else "隐私政策") },
             text = { Text(if (legal == "terms")
-                "这是用于体验流程的演示文案，不构成正式服务协议。应用当前不提供真实账号、支付或云端同步。"
-            else "演示登录不会发送短信或上传手机号。麦克风只在你主动点击语音识别时使用；" +
-                "会话文字保存在当前设备，系统识别服务是否联网取决于设备提供商。") },
+                "注册和登录仅用于保存你的服务数据。当前版本不提供付费功能。"
+            else "账号密码会通过当前配置的听见后端传输；密码不会以明文保存在服务端。" +
+                "麦克风只在你主动点击语音识别时使用。") },
             confirmButton = {
                 TextButton(onClick = { legal = "" }) { Text("知道了", color = teal) }
             })
@@ -145,39 +137,34 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
         Spacer(Modifier.height(28.dp))
         BrandMark()
         Spacer(Modifier.height(30.dp))
-        Pill("离线模拟登录", highlighted = true)
+        Pill(if (registerMode) "创建账户" else "账户登录", highlighted = true)
         Spacer(Modifier.height(17.dp))
-        Title("欢迎使用听见", "此页面仅用于体验登录交互，请勿填写真实手机号。")
+        Title("欢迎使用听见", if (registerMode) "注册后即可同步你的服务数据。" else "登录后连接听见后端服务。")
         Spacer(Modifier.height(24.dp))
         Surface(color = white, shape = RoundedCornerShape(22.dp),
             border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp)) {
-                OutlinedTextField(value = phone, onValueChange = {
-                    phone = it.filter { digit -> digit.isDigit() }.take(11)
-                    issued = false
+                if (registerMode) {
+                    OutlinedTextField(value = displayName, onValueChange = {
+                        displayName = it.take(40)
+                        error = ""
+                    }, label = { Text("昵称") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                }
+                OutlinedTextField(value = email, onValueChange = {
+                    email = it.take(254)
                     error = ""
-                }, label = { Text("演示手机号") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                }, label = { Text("邮箱") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = code, onValueChange = {
-                        code = it.filter { digit -> digit.isDigit() }.take(6)
-                        error = ""
-                    }, label = { Text("演示验证码") }, singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.weight(1f))
-                    TextButton(onClick = {
-                        if (phone == "13800000000") {
-                            issued = true
-                            cooldown = 30
-                            error = "演示验证码：123456（没有发送短信）"
-                        } else error = "请使用预填的演示手机号"
-                    }, enabled = cooldown == 0) {
-                        Text(if (cooldown > 0) "${cooldown}s" else "获取", color = teal)
-                    }
-                }
+                OutlinedTextField(value = password, onValueChange = {
+                    password = it.take(72)
+                    error = ""
+                }, label = { Text("密码（至少 8 位）") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth())
                 if (error.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(error, color = secondary, fontSize = 12.sp)
@@ -186,7 +173,7 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = consent, onCheckedChange = { consent = it })
                     Column {
-                        Text("我已阅读并同意演示说明", fontSize = 13.sp, color = secondary)
+                        Text("我已阅读并同意相关说明", fontSize = 13.sp, color = secondary)
                         Row {
                             TextButton(onClick = { legal = "terms" },
                                 contentPadding = PaddingValues(end = 8.dp)) {
@@ -201,23 +188,47 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                 }
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = {
-                    if (phone == "13800000000" && issued && code == "123456") {
-                        error = ""
-                        loginState = "loading"
-                    } else {
-                        loginState = "failed"
-                        error = "登录失败：请先获取并填写演示验证码 123456"
+                    if (email.isBlank() || password.length < 8 ||
+                        (registerMode && displayName.isBlank())) {
+                        error = "请填写有效邮箱、至少 8 位密码${if (registerMode) "和昵称" else ""}"
+                        return@Button
+                    }
+                    loginState = "loading"
+                    error = ""
+                    scope.launch {
+                        val result = if (registerMode) {
+                            repository.register(email, password, displayName)
+                        } else {
+                            repository.login(email, password)
+                        }
+                        when (result) {
+                            is ApiResult.Success -> {
+                                loginState = "success"
+                                onLogin()
+                            }
+                            is ApiResult.Error -> {
+                                loginState = "failed"
+                                error = result.message
+                            }
+                        }
                     }
                 }, enabled = consent && loginState != "loading",
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = teal)) {
-                    Text(if (loginState == "loading") "登录中…" else "体验登录")
+                    Text(if (loginState == "loading") "请稍候…" else if (registerMode) "注册并登录" else "登录")
+                }
+                TextButton(onClick = {
+                    registerMode = !registerMode
+                    error = ""
+                }, modifier = Modifier.align(Alignment.CenterHorizontally),
+                    enabled = loginState != "loading") {
+                    Text(if (registerMode) "已有账户？返回登录" else "没有账户？立即注册", color = teal)
                 }
             }
         }
         Spacer(Modifier.height(20.dp))
-        Text("本机保存的会话不与演示账户关联。实际账号和云同步需接入后端后开放。",
+        Text("若无法连接，请确认后端已启动，并检查 TINGJIAN_API_BASE_URL 配置。",
             color = secondary, fontSize = 12.sp, lineHeight = 19.sp)
     }
 }
@@ -259,8 +270,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 "terms" -> "我的术语与热词"
                 "phrases" -> "快捷短语管理"
                 "errors" -> "异常状态预览"
-                "logout" -> "退出演示账户？"
-                "delete" -> "注销演示账户"
+                "logout" -> "退出登录？"
+                "delete" -> "清除账户数据"
                 "clear" -> "清空全部会话？"
                 else -> "隐私与数据"
             })
@@ -521,12 +532,12 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                         modifier = Modifier.fillMaxWidth()) { Text("确认退出") }
                 }
                 "delete" -> Column {
-                    Text("注销演示账户会清除演示登录状态和本机保存的会话；该操作不可撤销。",
+                    Text("这会清除服务器上的会话与个性化数据，同时清除本机会话；该操作不可撤销。",
                         color = ink, fontSize = 14.sp, lineHeight = 22.sp)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = deleteCode, onValueChange = {
                         deleteCode = it.filter(Char::isDigit).take(6)
-                    }, label = { Text("输入演示验证码 123456") }, singleLine = true,
+                    }, label = { Text("输入确认码 123456") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = deleteAgreed, onCheckedChange = { deleteAgreed = it })
@@ -544,7 +555,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                     }, enabled = deleteCode == "123456" && deleteAgreed,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth()) { Text("验证并注销") }
+                        modifier = Modifier.fillMaxWidth()) { Text("验证并清除") }
                 }
                 "clear" -> Column {
                     Text("将删除这台设备上保存的全部真实会话。示例内容会继续保留，删除后无法恢复。",
@@ -583,7 +594,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         Surface(color = deep, shape = RoundedCornerShape(22.dp),
             modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(22.dp)) {
-                Text(if (demoLoggedIn) "听见 · 演示账户" else "听见 · 本机体验", color = white,
+                Text(if (demoLoggedIn) "听见 · 已登录" else "听见 · 本机体验", color = white,
                     fontWeight = FontWeight.Bold, fontSize = 21.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("已保存 $savedCount 段本机会话 · 不上传、不跨设备同步",
@@ -593,7 +604,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                     if (demoLoggedIn) dialog = "logout" else onLogin()
                 },
                     contentPadding = PaddingValues(0.dp)) {
-                    Text(if (demoLoggedIn) "退出演示账户" else "体验登录界面  →",
+                    Text(if (demoLoggedIn) "退出登录" else "登录或注册  →",
                         color = Color(0xFFDDF8EF), fontSize = 13.sp)
                 }
             }
@@ -678,14 +689,14 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         SettingsItem("异常状态预览", "断网 · 权限 · 额度 · 播报失败") { dialog = "errors" }
         if (demoLoggedIn) {
             Spacer(Modifier.height(10.dp))
-            SettingsItem("注销演示账户", "验证后清除演示状态和本机会话") {
+            SettingsItem("清除账户数据", "清除服务端数据和本机会话") {
                 deleteCode = ""
                 deleteAgreed = false
                 dialog = "delete"
             }
         }
         Spacer(Modifier.height(22.dp))
-        Text("登录、AI 表达助手、云端同步及用量套餐将在接入服务后开放。",
+        Text("AI 表达助手、云端同步及用量套餐将在后续版本开放。",
             color = secondary, fontSize = 12.sp, lineHeight = 19.sp)
         Spacer(Modifier.height(10.dp))
         TextButton(onClick = onLeave) { Text("返回欢迎页", color = teal) }
