@@ -5,6 +5,9 @@ import com.tingjian.app.HomeDashboard
 import com.tingjian.app.network.HistoryItemResponse
 import com.tingjian.app.network.HomeResponse
 import com.tingjian.app.network.SessionDetailResponse
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 internal fun HomeResponse.toDashboard(): HomeDashboard = HomeDashboard(
     conversationCount = overview.conversationCount,
@@ -46,6 +49,9 @@ private fun stableLocalId(serverId: String): Long =
 
 private fun formatServerTime(value: String): String {
     if (value.length < 16) return value
+    if (value.take(10) == SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())) {
+        return "今天 ${value.substring(11, 16)}"
+    }
     return "${value.substring(5, 7).toIntOrNull() ?: value.substring(5, 7)}月" +
         "${value.substring(8, 10).toIntOrNull() ?: value.substring(8, 10)}日 " +
         value.substring(11, 16)

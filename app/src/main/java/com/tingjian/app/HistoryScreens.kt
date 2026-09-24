@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -51,15 +52,29 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun HistoryScreen(records: List<Conversation>, onOpen: (Conversation) -> Unit) {
+internal fun HistoryScreen(records: List<Conversation>, loggedIn: Boolean, remoteTotal: Long,
+    loading: Boolean, loadError: String, hasNext: Boolean,
+    onSearch: (String) -> Unit, onRefresh: () -> Unit, onLoadMore: () -> Unit,
+    onOpen: (Conversation) -> Unit) {
     var search by remember { mutableStateOf("") }
+    var submittedSearch by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("全部") }
     var visibleCount by remember { mutableIntStateOf(10) }
+    LaunchedEffect(search, loggedIn) {
+        if (loggedIn && search != submittedSearch) {
+            delay(350)
+            submittedSearch = search
+            onSearch(search)
+        }
+    }
     val filtered = records.filter {
-        val matchesSearch = it.title.contains(search, ignoreCase = true) ||
-            it.preview.contains(search, ignoreCase = true) ||
-            it.transcript.any { (_, text) -> text.contains(search, ignoreCase = true) }
+        val matchesSearch = if (loggedIn && it.serverId != null) true else {
+            it.title.contains(search, ignoreCase = true) ||
+                it.preview.contains(search, ignoreCase = true) ||
+                it.transcript.any { (_, text) -> text.contains(search, ignoreCase = true) }
+        }
         val matchesFilter = when (filter) {
             "今天" -> it.time.startsWith("今天")
             "全部" -> true
@@ -67,8 +82,9 @@ internal fun HistoryScreen(records: List<Conversation>, onOpen: (Conversation) -
         }
         matchesSearch && matchesFilter
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(horizontal = 23.dp)) {
+    PullToRefreshBox(isRefreshing = loggedIn && loading, onRefresh = onRefresh) {
+      Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+          .padding(horizontal = 23.dp)) {
         Spacer(Modifier.height(27.dp))
         Title("会话记录", "重要的对话，随时回来看看。")
         Spacer(Modifier.height(23.dp))
@@ -96,21 +112,43 @@ internal fun HistoryScreen(records: List<Conversation>, onOpen: (Conversation) -
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("全部记录", color = ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text("${filtered.size} 条", color = secondary, fontSize = 12.sp)
+            Text(if (loggedIn) "云端 $remoteTotal 条" else "${filtered.size} 条",
+                color = secondary, fontSize = 12.sp)
         }
         Spacer(Modifier.height(15.dp))
-        if (filtered.isEmpty()) {
+        if (loadError.isNotBlank() && loggedIn) {
+            Surface(color = Color(0xFFFFF2C7), shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(loadError, Modifier.weight(1f), color = ink, fontSize = 13.sp)
+                    TextButton(onClick = onRefresh) { Text("重试", color = teal) }
+                }
+            }
+            Spacer(Modifier.height(11.dp))
+        }
+        if (loading && filtered.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = teal)
+            }
+        } else if (filtered.isEmpty()) {
             Surface(color = white, shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
                 Text("没有找到相关会话", Modifier.padding(30.dp),
                     color = secondary, textAlign = TextAlign.Center)
             }
         }
-        filtered.take(visibleCount).forEach {
+        val displayed = if (loggedIn) filtered else filtered.take(visibleCount)
+        displayed.forEach {
             ConversationCard(it) { onOpen(it) }
             Spacer(Modifier.height(11.dp))
         }
-        if (filtered.size > visibleCount) {
+        if (loggedIn && hasNext) {
+            OutlinedButton(onClick = onLoadMore, enabled = !loading,
+                modifier = Modifier.fillMaxWidth()) {
+                Text(if (loading) "正在加载…" else "加载更多云端记录")
+            }
+        } else if (!loggedIn && filtered.size > visibleCount) {
             OutlinedButton(onClick = { visibleCount += 10 },
                 modifier = Modifier.fillMaxWidth()) {
                 Text("加载更多（剩余 ${filtered.size - visibleCount} 条）")
@@ -118,27 +156,31 @@ internal fun HistoryScreen(records: List<Conversation>, onOpen: (Conversation) -
         }
         Spacer(Modifier.height(10.dp))
         if (filtered.any { it.isExample }) {
-            Text("“示例”会话仅供体验；你保存的会话只存在当前设备。",
+            Text(if (loggedIn) "“示例”会话仅供体验；账号会话会同步到听见服务。"
+                else "“示例”会话仅供体验；你保存的会话只存在当前设备。",
                 color = secondary, fontSize = 12.sp, lineHeight = 19.sp)
         }
         Spacer(Modifier.height(26.dp))
+      }
     }
 }
 
 @Composable
 internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boolean,
     keywords: List<String>,
+    loading: Boolean, loadError: String, onRetry: () -> Unit,
     onBack: () -> Unit,
     onRename: (String) -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current
     var confirmDelete by remember(record.id) { mutableStateOf(false) }
     var rename by remember(record.id) { mutableStateOf(false) }
     var newTitle by remember(record.id) { mutableStateOf(record.title) }
-    var summary by remember(record.id) { mutableStateOf("") }
-    var summaryState by remember(record.id) {
-        mutableStateOf(if (autoSummary) "generating" else "empty")
+    var summary by remember(record.id, record.transcript) { mutableStateOf("") }
+    var summaryState by remember(record.id, record.transcript) {
+        mutableStateOf(if (autoSummary && record.transcript.isNotEmpty())
+            "generating" else "empty")
     }
-    LaunchedEffect(record.id, summaryState) {
+    LaunchedEffect(record.id, record.transcript, summaryState) {
         if (summaryState == "generating") {
             delay(700)
             summary = localSummary(record)
@@ -168,7 +210,9 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
     if (confirmDelete) {
         AlertDialog(onDismissRequest = { confirmDelete = false },
             title = { Text("删除这条会话？") },
-            text = { Text("删除后无法找回本机保存的这段文字。") },
+            text = { Text(if (record.serverId == null)
+                "删除后无法找回本机保存的这段文字。"
+            else "删除后，这段会话会从听见服务和当前设备中移除。") },
             confirmButton = {
                 TextButton(onClick = { confirmDelete = false; onDelete() }) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
@@ -188,6 +232,27 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
         Spacer(Modifier.height(29.dp))
         Text("会话原文", color = ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(15.dp))
+        if (loading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = teal,
+                trackColor = divider)
+            Text("正在加载云端会话…", color = secondary, fontSize = 12.sp,
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+        }
+        if (loadError.isNotBlank()) {
+            Surface(color = Color(0xFFFFF2C7), shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(loadError, Modifier.weight(1f), color = ink, fontSize = 13.sp)
+                    TextButton(onClick = onRetry) { Text("重试", color = teal) }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+        if (!loading && loadError.isBlank() && record.transcript.isEmpty()) {
+            Text("这段会话暂时没有文字内容。", color = secondary, fontSize = 13.sp)
+            Spacer(Modifier.height(12.dp))
+        }
         record.transcript.forEachIndexed { index, (speaker, content) ->
             ChatBubble(content, fromMe = speaker == "我", large = large,
                 speaker = "$speaker · 第 ${index + 1} 条", keywords = keywords)
@@ -246,11 +311,16 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
         if (record.isExample) {
             Text("以上是示例内容，不是真实识别结果。", color = secondary, fontSize = 12.sp)
         } else {
-            Text("记录仅保存在本机，卸载应用可能清除记录。", color = secondary, fontSize = 12.sp)
+            Text(if (record.serverId == null)
+                "记录仅保存在本机，卸载应用可能清除记录。"
+            else "这段记录已保存到听见服务。",
+                color = secondary, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = { newTitle = record.title; rename = true }) {
-                    Text("重命名", color = teal)
+                if (record.serverId == null) {
+                    TextButton(onClick = { newTitle = record.title; rename = true }) {
+                        Text("重命名", color = teal)
+                    }
                 }
                 TextButton(onClick = { confirmDelete = true }) {
                     Text("删除此会话", color = MaterialTheme.colorScheme.error)

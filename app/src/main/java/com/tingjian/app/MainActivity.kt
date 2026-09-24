@@ -118,6 +118,16 @@ private fun TingjianApp() {
     var homeDashboard by remember { mutableStateOf<HomeDashboard?>(null) }
     var homeRefreshing by remember { mutableStateOf(false) }
     var homeError by remember { mutableStateOf("") }
+    var historyQuery by remember { mutableStateOf("") }
+    var historyPage by remember { mutableIntStateOf(0) }
+    var historyTotal by remember { mutableLongStateOf(0L) }
+    var historyHasNext by remember { mutableStateOf(false) }
+    var historyLoading by remember { mutableStateOf(false) }
+    var historyError by remember { mutableStateOf("") }
+    var historyRequestVersion by remember { mutableIntStateOf(0) }
+    var detailLoading by remember { mutableStateOf(false) }
+    var detailError by remember { mutableStateOf("") }
+    var detailRequestVersion by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
     val remoteIds = remoteRecords.mapNotNull { it.serverId }.toSet()
     val visibleSavedRecords = if (demoLoggedIn) {
@@ -128,15 +138,31 @@ private fun TingjianApp() {
     val allRecords = visibleSavedRecords + examples
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
-    suspend fun reloadRemoteHistory() {
-        when (val result = repository.history(page = 0, size = 50)) {
+    suspend fun reloadRemoteHistory(keyword: String = "", append: Boolean = false) {
+        if (!demoLoggedIn) return
+        val requestedPage = if (append) historyPage + 1 else 0
+        val requestVersion = ++historyRequestVersion
+        historyLoading = true
+        if (!append) historyError = ""
+        when (val result = repository.history(keyword = keyword, page = requestedPage, size = 20)) {
             is ApiResult.Success -> {
-                remoteRecords.clear()
-                remoteRecords.addAll(result.value.items.map { it.toConversation() })
+                if (requestVersion != historyRequestVersion) return
+                val incoming = result.value.items.map { it.toConversation() }
+                if (!append) remoteRecords.clear()
+                val knownIds = remoteRecords.mapNotNull { it.serverId }.toSet()
+                remoteRecords.addAll(incoming.filter { it.serverId !in knownIds })
+                historyPage = result.value.page
+                historyTotal = result.value.total
+                historyHasNext = result.value.hasNext
+                historyError = ""
                 syncNotice = ""
             }
-            is ApiResult.Error -> syncNotice = result.message
+            is ApiResult.Error -> {
+                if (requestVersion != historyRequestVersion) return
+                historyError = result.message
+            }
         }
+        if (requestVersion == historyRequestVersion) historyLoading = false
     }
 
     suspend fun reloadHome(showNotice: Boolean = false) {
@@ -309,13 +335,22 @@ private fun TingjianApp() {
 
     fun openConversation(record: Conversation) {
         selected = record
+        detailLoading = false
+        detailError = ""
         val serverId = record.serverId ?: return
         if (!demoLoggedIn || record.transcript.isNotEmpty()) return
+        val requestVersion = ++detailRequestVersion
+        detailLoading = true
         scope.launch {
             when (val result = repository.historyDetail(serverId)) {
-                is ApiResult.Success -> selected = result.value.toConversation()
-                is ApiResult.Error -> syncNotice = result.message
+                is ApiResult.Success -> if (requestVersion == detailRequestVersion) {
+                    selected = result.value.toConversation()
+                }
+                is ApiResult.Error -> if (requestVersion == detailRequestVersion) {
+                    detailError = result.message
+                }
             }
+            if (requestVersion == detailRequestVersion) detailLoading = false
         }
     }
 
@@ -330,6 +365,16 @@ private fun TingjianApp() {
             }
         } else {
             remoteRecords.clear()
+            historyQuery = ""
+            historyPage = 0
+            historyTotal = 0L
+            historyHasNext = false
+            historyLoading = false
+            historyError = ""
+            historyRequestVersion++
+            detailLoading = false
+            detailError = ""
+            detailRequestVersion++
             keywordRules.clear()
             homeDashboard = null
             homeError = ""
@@ -388,7 +433,14 @@ private fun TingjianApp() {
             } else if (record != null) {
                 DetailScreen(record, large, autoSummary,
                     if (keywordHighlight) enabledKeywords(glossaryTerms) else emptyList(),
-                    onBack = { selected = null },
+                    loading = detailLoading, loadError = detailError,
+                    onRetry = { openConversation(record) },
+                    onBack = {
+                        detailRequestVersion++
+                        detailLoading = false
+                        detailError = ""
+                        selected = null
+                    },
                     onRename = { newTitle ->
                     val index = savedRecords.indexOfFirst { it.id == record.id }
                     if (index >= 0) {
@@ -403,6 +455,7 @@ private fun TingjianApp() {
                             when (val result = repository.deleteHistory(serverId)) {
                                 is ApiResult.Success -> {
                                     remoteRecords.removeAll { it.serverId == serverId }
+                                    historyTotal = (historyTotal - 1L).coerceAtLeast(0L)
                                     reloadHome()
                                 }
                                 is ApiResult.Error -> syncNotice = result.message
@@ -514,7 +567,21 @@ private fun TingjianApp() {
                     }
                     scene = "日常"
                 })
-                2 -> HistoryScreen(allRecords, onOpen = { openConversation(it) })
+                2 -> HistoryScreen(allRecords, demoLoggedIn, historyTotal, historyLoading,
+                    historyError, historyHasNext,
+                    onSearch = { query ->
+                        historyQuery = query
+                        scope.launch { reloadRemoteHistory(keyword = query) }
+                    },
+                    onRefresh = {
+                        scope.launch { reloadRemoteHistory(keyword = historyQuery) }
+                    },
+                    onLoadMore = {
+                        if (!historyLoading && historyHasNext) scope.launch {
+                            reloadRemoteHistory(keyword = historyQuery, append = true)
+                        }
+                    },
+                    onOpen = { openConversation(it) })
                 else -> ProfileScreen(large, savedRecords.size, voiceMode, voiceStyle,
                     demoLoggedIn = demoLoggedIn, onLogin = { showLogin = true },
                     onLogout = {
