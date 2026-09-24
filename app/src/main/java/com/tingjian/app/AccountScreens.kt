@@ -55,15 +55,18 @@ import com.tingjian.app.data.ApiResult
 import com.tingjian.app.network.NetworkModule
 
 @Composable
-internal fun UsageScreen(savedCount: Int, onBack: () -> Unit) {
+internal fun UsageScreen(savedCount: Int, dashboard: HomeDashboard?, onBack: () -> Unit) {
     Column(Modifier.fillMaxSize().background(canvas).verticalScroll(rememberScrollState())
         .padding(horizontal = 23.dp)) {
         Spacer(Modifier.height(18.dp))
         TextButton(onClick = onBack) { Text("←  返回", color = teal) }
         Spacer(Modifier.height(14.dp))
-        Title("用量与额度", "V1 内测界面预览，暂未开放购买。")
+        Title("用量与额度", dashboard?.planDescription
+            ?: "V1 内测界面预览，暂未开放购买。")
         Spacer(Modifier.height(18.dp))
-        Pill("演示数值 · 不会自动扣费", highlighted = true)
+        Pill(dashboard?.let {
+            "${it.planName} · ${if (it.planPurchasable) "可购买" else "暂未开放购买"}"
+        } ?: "演示数值 · 不会自动扣费", highlighted = true)
         Spacer(Modifier.height(20.dp))
         UsageCard("实时识别", "剩余 45 分钟", 0.75f,
             "本期演示额度 60 分钟 · 已用 15 分钟")
@@ -77,9 +80,13 @@ internal fun UsageScreen(savedCount: Int, onBack: () -> Unit) {
         Surface(color = white, shape = RoundedCornerShape(18.dp),
             border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
-                Text("本机数据", color = ink, fontWeight = FontWeight.Bold)
+                Text(if (dashboard == null) "本机数据" else "账号数据",
+                    color = ink, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(7.dp))
-                Text("已保存 $savedCount 段会话", color = secondary, fontSize = 13.sp)
+                Text(dashboard?.let {
+                    "${it.conversationCount} 段会话 · ${it.messageCount} 条文字 · " +
+                        "${it.totalDurationSeconds / 60} 分钟"
+                } ?: "已保存 $savedCount 段会话", color = secondary, fontSize = 13.sp)
             }
         }
         Spacer(Modifier.height(16.dp))

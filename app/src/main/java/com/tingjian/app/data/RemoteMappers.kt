@@ -1,8 +1,21 @@
 package com.tingjian.app.data
 
 import com.tingjian.app.Conversation
+import com.tingjian.app.HomeDashboard
 import com.tingjian.app.network.HistoryItemResponse
+import com.tingjian.app.network.HomeResponse
 import com.tingjian.app.network.SessionDetailResponse
+
+internal fun HomeResponse.toDashboard(): HomeDashboard = HomeDashboard(
+    conversationCount = overview.conversationCount,
+    messageCount = overview.messageCount,
+    totalDurationSeconds = overview.totalDurationSeconds,
+    recentConversations = recentConversations.map { it.toConversation() },
+    scenes = scenes.map { it.name }.filter { it.isNotBlank() },
+    planName = plan.name,
+    planDescription = plan.description,
+    planPurchasable = plan.purchasable
+)
 
 internal fun HistoryItemResponse.toConversation(): Conversation = Conversation(
     title = title,

@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
@@ -91,16 +92,22 @@ internal fun WelcomeScreen(onEnter: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun HomeScreen(records: List<Conversation>, hasDraft: Boolean, demoLoggedIn: Boolean,
+internal fun HomeScreen(records: List<Conversation>, dashboard: HomeDashboard?,
+    refreshing: Boolean, homeError: String, hasDraft: Boolean, demoLoggedIn: Boolean,
     onNew: () -> Unit,
     onScene: (String) -> Unit, onHistory: () -> Unit, onUsage: () -> Unit,
-    onLogin: () -> Unit,
+    onLogin: () -> Unit, onRefresh: () -> Unit,
     onOpen: (Conversation) -> Unit) {
     val online = isNetworkAvailable(LocalContext.current)
-    val recent = records.filterNot { it.isExample }.ifEmpty { records }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(horizontal = 23.dp)) {
+    val localRecent = records.filterNot { it.isExample }.ifEmpty { records }
+    val recent = dashboard?.recentConversations?.ifEmpty { localRecent } ?: localRecent
+    val scenes = dashboard?.scenes?.takeIf { it.isNotEmpty() }
+        ?: listOf("课堂", "会议", "就医", "日常")
+    PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh) {
+      Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+          .padding(horizontal = 23.dp)) {
         Spacer(Modifier.height(24.dp))
         BrandMark()
         Spacer(Modifier.height(34.dp))
@@ -111,6 +118,27 @@ internal fun HomeScreen(records: List<Conversation>, hasDraft: Boolean, demoLogg
                 modifier = Modifier.fillMaxWidth()) {
                 Text("当前网络不可用；仍可输入文字，语音服务可能无法使用。",
                     Modifier.padding(13.dp), color = ink, fontSize = 14.sp)
+            }
+        }
+        if (demoLoggedIn && dashboard != null) {
+            Spacer(Modifier.height(12.dp))
+            Surface(color = mint, shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.fillMaxWidth()) {
+                val minutes = dashboard.totalDurationSeconds / 60
+                Text("${dashboard.conversationCount} 段会话  ·  " +
+                    "${dashboard.messageCount} 条文字  ·  ${minutes} 分钟",
+                    Modifier.padding(13.dp), color = deep, fontSize = 13.sp)
+            }
+        }
+        if (demoLoggedIn && homeError.isNotBlank()) {
+            Spacer(Modifier.height(12.dp))
+            Surface(color = Color(0xFFFFF2C7), shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(homeError, Modifier.weight(1f), color = ink, fontSize = 13.sp)
+                    TextButton(onClick = onRefresh) { Text("重试", color = teal) }
+                }
             }
         }
         Spacer(Modifier.height(27.dp))
@@ -134,7 +162,7 @@ internal fun HomeScreen(records: List<Conversation>, hasDraft: Boolean, demoLogg
         Spacer(Modifier.height(23.dp))
         Text("常用场景", color = ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
-        listOf("课堂", "会议", "就医", "日常").chunked(2).forEach { row ->
+        scenes.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp),
                 modifier = Modifier.fillMaxWidth()) {
                 row.forEach { option ->
@@ -157,7 +185,11 @@ internal fun HomeScreen(records: List<Conversation>, hasDraft: Boolean, demoLogg
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("用量与额度", color = ink, fontWeight = FontWeight.SemiBold)
-                    Text("V1 内测演示 · 暂未开放购买", color = secondary, fontSize = 12.sp)
+                    Text(dashboard?.let {
+                        "${it.planName} · ${it.planDescription}"
+                    } ?: "V1 内测演示 · 暂未开放购买",
+                        color = secondary, fontSize = 12.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Text("›", color = teal, fontSize = 23.sp)
             }
@@ -180,5 +212,6 @@ internal fun HomeScreen(records: List<Conversation>, hasDraft: Boolean, demoLogg
             }
         }
         Spacer(Modifier.height(24.dp))
+      }
     }
 }

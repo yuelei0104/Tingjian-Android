@@ -88,6 +88,17 @@ internal data class KeywordRule(
     val enabled: Boolean
 )
 
+internal data class HomeDashboard(
+    val conversationCount: Long,
+    val messageCount: Long,
+    val totalDurationSeconds: Long,
+    val recentConversations: List<Conversation>,
+    val scenes: List<String>,
+    val planName: String,
+    val planDescription: String,
+    val planPurchasable: Boolean
+)
+
 internal val examples = listOf(
     Conversation("和朋友聊聊周末", "今天 14:32", "我们周六去公园走走，怎么样？", "12 分钟",
         listOf("对方" to "我们周六去公园走走，怎么样？", "我" to "好呀，下午见！"),

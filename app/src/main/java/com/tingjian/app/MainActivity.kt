@@ -49,6 +49,7 @@ import com.tingjian.app.network.GlossaryUpsertRequest
 import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.data.ApiResult
+import com.tingjian.app.data.toDashboard
 import com.tingjian.app.data.toConversation
 import org.json.JSONArray
 import org.json.JSONObject
@@ -114,6 +115,9 @@ private fun TingjianApp() {
     var personalizationVersion by remember { mutableIntStateOf(0) }
     var knownGlossaryIds by remember { mutableStateOf(emptySet<String>()) }
     var knownQuickPhraseIds by remember { mutableStateOf(emptySet<String>()) }
+    var homeDashboard by remember { mutableStateOf<HomeDashboard?>(null) }
+    var homeRefreshing by remember { mutableStateOf(false) }
+    var homeError by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val remoteIds = remoteRecords.mapNotNull { it.serverId }.toSet()
     val visibleSavedRecords = if (demoLoggedIn) {
@@ -133,6 +137,22 @@ private fun TingjianApp() {
             }
             is ApiResult.Error -> syncNotice = result.message
         }
+    }
+
+    suspend fun reloadHome(showNotice: Boolean = false) {
+        if (!demoLoggedIn) return
+        homeRefreshing = true
+        when (val result = repository.home()) {
+            is ApiResult.Success -> {
+                homeDashboard = result.value.toDashboard()
+                homeError = ""
+            }
+            is ApiResult.Error -> {
+                homeError = result.message
+                if (showNotice) syncNotice = result.message
+            }
+        }
+        homeRefreshing = false
     }
 
     suspend fun reloadPersonalization() {
@@ -301,6 +321,7 @@ private fun TingjianApp() {
 
     LaunchedEffect(demoLoggedIn) {
         if (demoLoggedIn) {
+            reloadHome()
             reloadRemoteHistory()
             reloadPersonalization()
             if (glossaryTerms.any { it.serverId == null } ||
@@ -310,6 +331,9 @@ private fun TingjianApp() {
         } else {
             remoteRecords.clear()
             keywordRules.clear()
+            homeDashboard = null
+            homeError = ""
+            homeRefreshing = false
             knownGlossaryIds = emptySet()
             knownQuickPhraseIds = emptySet()
         }
@@ -353,7 +377,8 @@ private fun TingjianApp() {
         Box(Modifier.fillMaxSize().padding(insets)) {
             val record = selected
             if (showUsage) {
-                UsageScreen(savedCount = savedRecords.size, onBack = { showUsage = false })
+                UsageScreen(savedCount = savedRecords.size, dashboard = homeDashboard,
+                    onBack = { showUsage = false })
             } else if (showLogin) {
                 DemoLoginScreen(onBack = { showLogin = false }, onLogin = {
                     demoLoggedIn = true
@@ -376,7 +401,10 @@ private fun TingjianApp() {
                     record.serverId?.let { serverId ->
                         scope.launch {
                             when (val result = repository.deleteHistory(serverId)) {
-                                is ApiResult.Success -> remoteRecords.removeAll { it.serverId == serverId }
+                                is ApiResult.Success -> {
+                                    remoteRecords.removeAll { it.serverId == serverId }
+                                    reloadHome()
+                                }
                                 is ApiResult.Error -> syncNotice = result.message
                             }
                         }
@@ -386,7 +414,8 @@ private fun TingjianApp() {
                     selected = null
                 })
             } else when (tab) {
-                0 -> HomeScreen(allRecords, liveLines.isNotEmpty(), demoLoggedIn, onNew = {
+                0 -> HomeScreen(allRecords, homeDashboard, homeRefreshing, homeError,
+                    liveLines.isNotEmpty(), demoLoggedIn, onNew = {
                     if (sessionStartedAt == 0L) sessionStartedAt = System.currentTimeMillis()
                     createRemoteSession("面对面会话")
                     tab = 1
@@ -397,6 +426,12 @@ private fun TingjianApp() {
                     tab = 1
                 }, onHistory = { tab = 2 }, onUsage = { showUsage = true },
                     onLogin = { showLogin = true },
+                    onRefresh = {
+                        if (demoLoggedIn) scope.launch {
+                            reloadHome(showNotice = true)
+                            reloadRemoteHistory()
+                        }
+                    },
                     onOpen = { openConversation(it) })
                 1 -> LiveScreen(large, liveLines, recognitionLanguage, onLanguageChange = {
                     recognitionLanguage = it
@@ -464,6 +499,7 @@ private fun TingjianApp() {
                                 if (uploadSucceeded) {
                                     repository.endSession(actualServerId)
                                     reloadRemoteHistory()
+                                    reloadHome()
                                 }
                             }
                             activeSessionId = null
@@ -507,6 +543,7 @@ private fun TingjianApp() {
                                     is ApiResult.Success -> remoteRecords.clear()
                                     is ApiResult.Error -> syncNotice = result.message
                                 }
+                                reloadHome()
                             }
                         }
                         savedRecords.clear()
