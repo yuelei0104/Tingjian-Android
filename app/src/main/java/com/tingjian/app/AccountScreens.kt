@@ -330,7 +330,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 }
                 "terms" -> Column(Modifier.heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState())) {
-                    Text("词条用于本机关键词高亮和震动；云端热词增强将在识别服务接入后启用。",
+                    Text("词条用于关键词高亮和震动；登录后会同步到听见服务。",
                         color = secondary, fontSize = 13.sp, lineHeight = 19.sp)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = newTerm, onValueChange = { newTerm = it.take(30) },
@@ -374,7 +374,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                         } else if (name.isNotEmpty()) {
                             val updated = GlossaryTerm(name, newAlias.trim(), newTermLanguage,
                                 newTermCategory, newTermPriority,
-                                terms.getOrNull(editingTermIndex)?.enabled ?: true)
+                                terms.getOrNull(editingTermIndex)?.enabled ?: true,
+                                terms.getOrNull(editingTermIndex)?.serverId)
                             if (editingTermIndex in terms.indices) terms[editingTermIndex] = updated
                             else terms.add(updated)
                             onTermsChanged()
@@ -425,7 +426,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 }
                 "phrases" -> Column(Modifier.heightIn(max = 430.dp)
                     .verticalScroll(rememberScrollState())) {
-                    Text("快捷短语保存在本机，可启用、删除并用上下按钮调整顺序。",
+                    Text("快捷短语可启用、删除并调整顺序；登录后会自动同步。",
                         color = secondary, fontSize = 13.sp, lineHeight = 19.sp)
                     OutlinedTextField(value = newPhrase,
                         onValueChange = { newPhrase = it.take(80) },
@@ -441,7 +442,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                     }
                     TextButton(onClick = {
                         val updated = QuickPhrase(newPhrase.trim(), newPhraseCategory,
-                            quickPhrases.getOrNull(editingPhraseIndex)?.enabled ?: true)
+                            quickPhrases.getOrNull(editingPhraseIndex)?.enabled ?: true,
+                            quickPhrases.getOrNull(editingPhraseIndex)?.serverId)
                         if (editingPhraseIndex in quickPhrases.indices) {
                             quickPhrases[editingPhraseIndex] = updated
                         } else quickPhrases.add(updated)
@@ -665,7 +667,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         SettingsItem("播报语言、音色与语速",
             "$voiceMode · $voiceStyle · ${ttsSpeed}x") { dialog = "voice" }
         Spacer(Modifier.height(10.dp))
-        SettingsItem("我的术语与热词", "${terms.size} 个本机词条") { dialog = "terms" }
+        SettingsItem("我的术语与热词", "${terms.size} 个词条") { dialog = "terms" }
         Spacer(Modifier.height(10.dp))
         SettingsItem("快捷短语管理", "${quickPhrases.count { it.enabled }} 条已启用") {
             dialog = "phrases"

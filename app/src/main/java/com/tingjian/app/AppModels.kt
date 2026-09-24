@@ -58,7 +58,7 @@ import kotlinx.coroutines.delay
 internal data class Conversation(
     val title: String, val time: String, val preview: String, val duration: String,
     val transcript: List<Pair<String, String>>, val id: Long = 0L, val isExample: Boolean = false,
-    val scene: String = "日常"
+    val scene: String = "日常", val serverId: String? = null
 )
 
 internal data class ChatLine(val content: String, val fromMe: Boolean)
@@ -69,13 +69,23 @@ internal data class GlossaryTerm(
     val language: String = "自动",
     val category: String = "通用",
     val priority: String = "中",
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val serverId: String? = null
 )
 
 internal data class QuickPhrase(
     val text: String,
     val category: String = "日常",
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val serverId: String? = null
+)
+
+internal data class KeywordRule(
+    val id: String,
+    val phrase: String,
+    val vibrationEnabled: Boolean,
+    val priority: Int,
+    val enabled: Boolean
 )
 
 internal val examples = listOf(
@@ -107,7 +117,8 @@ internal fun loadConversations(preferences: SharedPreferences): List<Conversatio
             duration = item.optString("duration"),
             transcript = transcript,
             id = item.optLong("id"),
-            scene = item.optString("scene", "日常")
+            scene = item.optString("scene", "日常"),
+            serverId = item.optString("serverId").ifBlank { null }
         )
     }
 }.getOrDefault(emptyList())
@@ -122,6 +133,7 @@ internal fun saveConversations(preferences: SharedPreferences, conversations: Li
         data.put(JSONObject().put("id", conversation.id).put("title", conversation.title)
             .put("time", conversation.time).put("duration", conversation.duration)
             .put("scene", conversation.scene)
+            .put("serverId", conversation.serverId ?: "")
             .put("messages", messages))
     }
     preferences.edit().putString("saved_conversations", data.toString()).apply()
@@ -138,7 +150,8 @@ internal fun loadTerms(preferences: SharedPreferences): List<GlossaryTerm> = run
             language = item.optString("language", "自动"),
             category = item.optString("category", "通用"),
             priority = item.optString("priority", "中"),
-            enabled = item.optBoolean("enabled", true)
+            enabled = item.optBoolean("enabled", true),
+            serverId = item.optString("serverId").ifBlank { null }
         )
     }
 }.getOrDefault(emptyList())
@@ -148,7 +161,8 @@ internal fun saveTerms(preferences: SharedPreferences, terms: List<GlossaryTerm>
     terms.forEach { term ->
         data.put(JSONObject().put("name", term.name).put("alias", term.alias)
             .put("language", term.language).put("category", term.category)
-            .put("priority", term.priority).put("enabled", term.enabled))
+            .put("priority", term.priority).put("enabled", term.enabled)
+            .put("serverId", term.serverId ?: ""))
     }
     preferences.edit().putString("saved_terms", data.toString()).apply()
 }
@@ -164,7 +178,7 @@ internal fun loadQuickPhrases(preferences: SharedPreferences): List<QuickPhrase>
         val item = data.optJSONObject(index) ?: return@mapNotNull null
         val text = item.optString("text")
         if (text.isBlank()) null else QuickPhrase(text, item.optString("category", "日常"),
-            item.optBoolean("enabled", true))
+            item.optBoolean("enabled", true), item.optString("serverId").ifBlank { null })
     }
 }.getOrDefault(emptyList())
 
@@ -172,7 +186,7 @@ internal fun saveQuickPhrases(preferences: SharedPreferences, phrases: List<Quic
     val data = JSONArray()
     phrases.forEach { phrase ->
         data.put(JSONObject().put("text", phrase.text).put("category", phrase.category)
-            .put("enabled", phrase.enabled))
+            .put("enabled", phrase.enabled).put("serverId", phrase.serverId ?: ""))
     }
     preferences.edit().putString("quick_phrases", data.toString()).apply()
 }
