@@ -3,6 +3,8 @@ package com.tingjian.app
 import android.Manifest
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -49,6 +51,7 @@ import com.tingjian.app.network.GlossaryUpsertRequest
 import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.data.ApiResult
+import com.tingjian.app.data.resumeIndexFor
 import com.tingjian.app.data.toDashboard
 import com.tingjian.app.data.toConversation
 import org.json.JSONArray
@@ -129,14 +132,20 @@ private fun TingjianApp() {
     var detailError by remember { mutableStateOf("") }
     var detailRequestVersion by remember { mutableIntStateOf(0) }
     var dataActionRunning by remember { mutableStateOf(false) }
+    var conversationSyncRunning by remember { mutableStateOf(false) }
+    var networkGeneration by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val remoteIds = remoteRecords.mapNotNull { it.serverId }.toSet()
+    val pendingServerIds = savedRecords.filter { it.syncPending }
+        .mapNotNull { it.serverId }.toSet()
+    val visibleRemoteRecords = remoteRecords.filter { it.serverId !in pendingServerIds }
+    val remoteIds = visibleRemoteRecords.mapNotNull { it.serverId }.toSet()
     val visibleSavedRecords = if (demoLoggedIn) {
-        remoteRecords.toList() + savedRecords.filter { it.serverId !in remoteIds }
+        visibleRemoteRecords + savedRecords.filter { it.syncPending || it.serverId !in remoteIds }
     } else {
         savedRecords.toList()
     }
     val allRecords = visibleSavedRecords + examples
+    val pendingSyncCount = savedRecords.count { it.syncPending && it.transcript.isNotEmpty() }
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     suspend fun reloadRemoteHistory(keyword: String = "", append: Boolean = false) {
@@ -180,6 +189,110 @@ private fun TingjianApp() {
             }
         }
         homeRefreshing = false
+    }
+
+    fun updateLocalConversation(
+        localId: Long,
+        update: (Conversation) -> Conversation
+    ): Conversation? {
+        val index = savedRecords.indexOfFirst { it.id == localId }
+        if (index < 0) return null
+        val updated = update(savedRecords[index])
+        savedRecords[index] = updated
+        if (selected?.id == localId) selected = updated
+        saveConversations(preferences, savedRecords)
+        return updated
+    }
+
+    suspend fun syncConversation(record: Conversation): ApiResult<Unit> {
+        var local = savedRecords.firstOrNull { it.id == record.id } ?: return ApiResult.Success(Unit)
+        if (!local.syncPending || local.transcript.isEmpty()) return ApiResult.Success(Unit)
+
+        var serverId = local.serverId
+        var resumeIndex = 0
+        if (serverId != null) {
+            when (val detail = repository.session(serverId)) {
+                is ApiResult.Success -> {
+                    resumeIndex = detail.value.resumeIndexFor(local)
+                        ?: return ApiResult.Error("云端会话与本机内容不一致，已停止自动同步")
+                    if (detail.value.session.status == "ENDED") {
+                        if (resumeIndex != local.transcript.size) {
+                            return ApiResult.Error("云端会话已结束，但仍有本机文字未上传")
+                        }
+                        updateLocalConversation(local.id) {
+                            it.copy(serverId = serverId, syncPending = false)
+                        }
+                        return ApiResult.Success(Unit)
+                    }
+                }
+                is ApiResult.Error -> {
+                    if (detail.httpCode == 404) serverId = null else return detail
+                }
+            }
+        }
+
+        if (serverId == null) {
+            when (val created = repository.createSession(local.title)) {
+                is ApiResult.Success -> {
+                    serverId = created.value.id
+                    local = updateLocalConversation(local.id) {
+                        it.copy(serverId = created.value.id, syncPending = true)
+                    } ?: return ApiResult.Success(Unit)
+                    resumeIndex = 0
+                }
+                is ApiResult.Error -> return created
+            }
+        }
+
+        val actualServerId = serverId
+            ?: return ApiResult.Error("无法创建云端会话")
+        for ((speaker, content) in local.transcript.drop(resumeIndex)) {
+            when (val uploaded = repository.addMessage(
+                actualServerId,
+                if (speaker == "我") "SELF" else "OTHER",
+                content
+            )) {
+                is ApiResult.Success -> Unit
+                is ApiResult.Error -> return uploaded
+            }
+        }
+        when (val ended = repository.endSession(actualServerId)) {
+            is ApiResult.Success -> updateLocalConversation(local.id) {
+                it.copy(serverId = actualServerId, syncPending = false)
+            }
+            is ApiResult.Error -> return ended
+        }
+        return ApiResult.Success(Unit)
+    }
+
+    suspend fun syncPendingConversations(showSuccess: Boolean = false) {
+        if (!demoLoggedIn || conversationSyncRunning) return
+        conversationSyncRunning = true
+        var synced = 0
+        var failure: String? = null
+        while (true) {
+            val next = savedRecords.firstOrNull {
+                it.syncPending && it.transcript.isNotEmpty()
+            } ?: break
+            when (val result = syncConversation(next)) {
+                is ApiResult.Success -> synced++
+                is ApiResult.Error -> {
+                    failure = result.message
+                    break
+                }
+            }
+        }
+        if (synced > 0) {
+            reloadRemoteHistory(keyword = historyQuery)
+            reloadHome()
+        }
+        conversationSyncRunning = false
+        val remaining = savedRecords.count { it.syncPending && it.transcript.isNotEmpty() }
+        when {
+            failure != null -> syncNotice = "仍有 $remaining 段会话待同步：$failure"
+            showSuccess && synced > 0 -> syncNotice = "已同步 $synced 段会话"
+            showSuccess && remaining == 0 -> syncNotice = "会话已经全部同步"
+        }
     }
 
     suspend fun reloadPersonalization() {
@@ -385,6 +498,7 @@ private fun TingjianApp() {
                 quickPhrases.any { it.serverId == null }) {
                 syncPersonalization()
             }
+            syncPendingConversations()
         } else {
             remoteRecords.clear()
             historyQuery = ""
@@ -403,6 +517,22 @@ private fun TingjianApp() {
             homeRefreshing = false
             knownGlossaryIds = emptySet()
             knownQuickPhraseIds = emptySet()
+        }
+    }
+    DisposableEffect(Unit) {
+        val connectivity = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as ConnectivityManager
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Handler(Looper.getMainLooper()).post { networkGeneration++ }
+            }
+        }
+        connectivity.registerDefaultNetworkCallback(callback)
+        onDispose { runCatching { connectivity.unregisterNetworkCallback(callback) } }
+    }
+    LaunchedEffect(networkGeneration) {
+        if (networkGeneration > 0 && demoLoggedIn && pendingSyncCount > 0) {
+            syncPendingConversations()
         }
     }
     LaunchedEffect(personalizationVersion) {
@@ -503,6 +633,7 @@ private fun TingjianApp() {
                     onLogin = { showLogin = true },
                     onRefresh = {
                         if (demoLoggedIn) scope.launch {
+                            syncPendingConversations()
                             reloadHome(showNotice = true)
                             reloadRemoteHistory()
                         }
@@ -521,7 +652,6 @@ private fun TingjianApp() {
                     val now = System.currentTimeMillis()
                     val completedLines = liveLines.toList()
                     val completedSessionId = activeSessionId
-                    val completedTitle = if (scene == "日常") "面对面会话" else "$scene · 会话"
                     if (liveLines.isNotEmpty()) {
                         val start = if (sessionStartedAt == 0L) now else sessionStartedAt
                         val record = Conversation(
@@ -532,53 +662,26 @@ private fun TingjianApp() {
                             duration = "${(now - start).coerceAtLeast(0L) / 60000L + 1} 分钟",
                             transcript = liveLines.map { (text, fromMe) ->
                                 (if (fromMe) "我" else "对方") to text
-                            }, id = now, scene = scene, serverId = completedSessionId
+                            }, id = now, scene = scene, serverId = completedSessionId,
+                            syncPending = true
                         )
                         savedRecords.add(0, record)
                         if (savedRecords.size > 100) savedRecords.removeAt(savedRecords.lastIndex)
                         saveConversations(preferences, savedRecords)
                         selected = record
                     }
-                    if (demoLoggedIn) {
+                    if (demoLoggedIn && completedLines.isNotEmpty()) {
                         scope.launch {
                             while (remoteSessionCreating) delay(50)
-                            var serverId = completedSessionId ?: activeSessionId
-                            if (serverId == null && completedLines.isNotEmpty()) {
-                                when (val created = repository.createSession(completedTitle)) {
-                                    is ApiResult.Success -> serverId = created.value.id
-                                    is ApiResult.Error -> syncNotice = created.message
-                                }
-                            }
-                            if (serverId != null) {
-                                val actualServerId = serverId
-                                val localIndex = savedRecords.indexOfFirst { it.id == now }
-                                if (completedLines.isNotEmpty() && localIndex >= 0) {
-                                    savedRecords[localIndex] = savedRecords[localIndex].copy(
-                                        serverId = actualServerId
-                                    )
-                                    saveConversations(preferences, savedRecords)
-                                }
-                                var uploadSucceeded = true
-                                for (line in completedLines) {
-                                    val result = repository.addMessage(
-                                        actualServerId,
-                                        if (line.fromMe) "SELF" else "OTHER",
-                                        line.content
-                                    )
-                                    if (result is ApiResult.Error) {
-                                        uploadSucceeded = false
-                                        syncNotice = result.message
-                                        break
-                                    }
-                                }
-                                if (uploadSucceeded) {
-                                    repository.endSession(actualServerId)
-                                    reloadRemoteHistory()
-                                    reloadHome()
+                            val preparedServerId = completedSessionId ?: activeSessionId
+                            if (preparedServerId != null) {
+                                updateLocalConversation(now) {
+                                    it.copy(serverId = preparedServerId, syncPending = true)
                                 }
                             }
                             activeSessionId = null
                             remoteSessionCreating = false
+                            syncPendingConversations()
                         }
                     }
                     liveLines.clear()
@@ -608,8 +711,15 @@ private fun TingjianApp() {
                     demoLoggedIn = demoLoggedIn,
                     accountName = repository.displayName(), accountEmail = repository.email(),
                     remoteCount = homeDashboard?.conversationCount ?: historyTotal,
-                    dataActionRunning = dataActionRunning,
+                    dataActionRunning = dataActionRunning || conversationSyncRunning,
+                    pendingSyncCount = pendingSyncCount,
+                    syncRunning = conversationSyncRunning,
                     onLogin = { showLogin = true },
+                    onRetrySync = {
+                        if (demoLoggedIn) scope.launch {
+                            syncPendingConversations(showSuccess = true)
+                        }
+                    },
                     onLogout = {
                         if (!dataActionRunning) scope.launch {
                             dataActionRunning = true

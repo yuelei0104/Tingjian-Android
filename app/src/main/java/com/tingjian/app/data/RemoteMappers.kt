@@ -28,7 +28,8 @@ internal fun HistoryItemResponse.toConversation(): Conversation = Conversation(
     transcript = emptyList(),
     id = stableLocalId(id),
     scene = inferScene(title),
-    serverId = id
+    serverId = id,
+    syncPending = false
 )
 
 internal fun SessionDetailResponse.toConversation(): Conversation = Conversation(
@@ -41,8 +42,23 @@ internal fun SessionDetailResponse.toConversation(): Conversation = Conversation
     },
     id = stableLocalId(session.id),
     scene = inferScene(session.title),
-    serverId = session.id
+    serverId = session.id,
+    syncPending = false
 )
+
+/**
+ * 返回可以从哪里继续上传；null 表示云端内容不是本机记录的前缀，不能安全续传。
+ */
+internal fun SessionDetailResponse.resumeIndexFor(local: Conversation): Int? {
+    if (messages.size > local.transcript.size) return null
+    val matches = messages.indices.all { index ->
+        val (speaker, content) = local.transcript[index]
+        val expectedSpeaker = if (speaker == "我") "SELF" else "OTHER"
+        messages[index].speaker == expectedSpeaker &&
+            messages[index].content == content
+    }
+    return if (matches) messages.size else null
+}
 
 private fun stableLocalId(serverId: String): Long =
     serverId.fold(1125899906842597L) { value, character -> value * 31 + character.code }

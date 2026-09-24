@@ -243,8 +243,9 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
 @Composable
 internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     voiceStyle: String, demoLoggedIn: Boolean, accountName: String?, accountEmail: String?,
-    remoteCount: Long, dataActionRunning: Boolean,
-    onLogin: () -> Unit, onLogout: () -> Unit,
+    remoteCount: Long, dataActionRunning: Boolean, pendingSyncCount: Int,
+    syncRunning: Boolean, onLogin: () -> Unit, onRetrySync: () -> Unit,
+    onLogout: () -> Unit,
     onClearAccountData: () -> Unit, onUsage: () -> Unit, onClearHistory: () -> Unit,
     onClearPersonalization: () -> Unit,
     onVoiceModeChange: (String) -> Unit, onVoiceStyleChange: (String) -> Unit,
@@ -631,7 +632,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                     fontWeight = FontWeight.Bold, fontSize = 21.sp)
                 Spacer(Modifier.height(8.dp))
                 Text(if (demoLoggedIn)
-                    "${accountEmail.orEmpty()} · 云端 $remoteCount 段会话"
+                    "${accountEmail.orEmpty()} · 云端 $remoteCount 段会话" +
+                        if (pendingSyncCount > 0) " · 待同步 $pendingSyncCount 段" else ""
                 else "已保存 $savedCount 段本机会话 · 不上传、不跨设备同步",
                     color = Color(0xFFC1E9E0), fontSize = 13.sp)
                 Spacer(Modifier.height(13.dp))
@@ -708,6 +710,13 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         Spacer(Modifier.height(27.dp))
         Text("数据与说明", color = ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(12.dp))
+        if (demoLoggedIn && pendingSyncCount > 0) {
+            SettingsItem("待同步会话",
+                if (syncRunning) "正在同步…" else "$pendingSyncCount 段等待上传，点击重试") {
+                if (!syncRunning) onRetrySync()
+            }
+            Spacer(Modifier.height(10.dp))
+        }
         SettingsItem("用量与额度", "演示额度 · 暂未开放购买") { onUsage() }
         Spacer(Modifier.height(10.dp))
         SettingsItem("隐私与数据", "麦克风权限 · 本机存储") { dialog = "privacy" }

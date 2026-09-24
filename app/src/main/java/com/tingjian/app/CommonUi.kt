@@ -128,6 +128,11 @@ internal fun ConversationCard(item: Conversation, onClick: () -> Unit) {
                 Text("示例", color = teal, fontSize = 11.sp,
                     modifier = Modifier.background(mint, RoundedCornerShape(8.dp))
                         .padding(horizontal = 6.dp, vertical = 4.dp))
+            } else if (item.syncPending) {
+                Spacer(Modifier.width(6.dp))
+                Text("待同步", color = Color(0xFF875B00), fontSize = 11.sp,
+                    modifier = Modifier.background(Color(0xFFFFF1C2), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp))
             }
             Spacer(Modifier.width(5.dp))
             Text("›", color = secondary, fontSize = 25.sp)

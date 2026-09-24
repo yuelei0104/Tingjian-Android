@@ -58,7 +58,8 @@ import kotlinx.coroutines.delay
 internal data class Conversation(
     val title: String, val time: String, val preview: String, val duration: String,
     val transcript: List<Pair<String, String>>, val id: Long = 0L, val isExample: Boolean = false,
-    val scene: String = "日常", val serverId: String? = null
+    val scene: String = "日常", val serverId: String? = null,
+    val syncPending: Boolean = false
 )
 
 internal data class ChatLine(val content: String, val fromMe: Boolean)
@@ -129,7 +130,9 @@ internal fun loadConversations(preferences: SharedPreferences): List<Conversatio
             transcript = transcript,
             id = item.optLong("id"),
             scene = item.optString("scene", "日常"),
-            serverId = item.optString("serverId").ifBlank { null }
+            serverId = item.optString("serverId").ifBlank { null },
+            // 旧版本没有该字段，让它在升级后进行一次安全对账。
+            syncPending = item.optBoolean("syncPending", true)
         )
     }
 }.getOrDefault(emptyList())
@@ -145,6 +148,7 @@ internal fun saveConversations(preferences: SharedPreferences, conversations: Li
             .put("time", conversation.time).put("duration", conversation.duration)
             .put("scene", conversation.scene)
             .put("serverId", conversation.serverId ?: "")
+            .put("syncPending", conversation.syncPending)
             .put("messages", messages))
     }
     preferences.edit().putString("saved_conversations", data.toString()).apply()
