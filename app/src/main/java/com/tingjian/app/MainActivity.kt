@@ -128,6 +128,7 @@ private fun TingjianApp() {
     var detailLoading by remember { mutableStateOf(false) }
     var detailError by remember { mutableStateOf("") }
     var detailRequestVersion by remember { mutableIntStateOf(0) }
+    var dataActionRunning by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val remoteIds = remoteRecords.mapNotNull { it.serverId }.toSet()
     val visibleSavedRecords = if (demoLoggedIn) {
@@ -352,6 +353,27 @@ private fun TingjianApp() {
             }
             if (requestVersion == detailRequestVersion) detailLoading = false
         }
+    }
+
+    fun clearLocalHistory() {
+        remoteRecords.clear()
+        savedRecords.clear()
+        saveConversations(preferences, savedRecords)
+        historyPage = 0
+        historyTotal = 0L
+        historyHasNext = false
+        historyError = ""
+        historyRequestVersion++
+    }
+
+    fun clearLocalPersonalization() {
+        glossaryTerms.clear()
+        quickPhrases.clear()
+        keywordRules.clear()
+        knownGlossaryIds = emptySet()
+        knownQuickPhraseIds = emptySet()
+        saveTerms(preferences, glossaryTerms)
+        saveQuickPhrases(preferences, quickPhrases)
     }
 
     LaunchedEffect(demoLoggedIn) {
@@ -583,38 +605,71 @@ private fun TingjianApp() {
                     },
                     onOpen = { openConversation(it) })
                 else -> ProfileScreen(large, savedRecords.size, voiceMode, voiceStyle,
-                    demoLoggedIn = demoLoggedIn, onLogin = { showLogin = true },
+                    demoLoggedIn = demoLoggedIn,
+                    accountName = repository.displayName(), accountEmail = repository.email(),
+                    remoteCount = homeDashboard?.conversationCount ?: historyTotal,
+                    dataActionRunning = dataActionRunning,
+                    onLogin = { showLogin = true },
                     onLogout = {
-                        scope.launch { repository.logout() }
-                        demoLoggedIn = false
-                    },
-                    onDeleteAccount = {
-                        scope.launch {
-                            repository.clearAllData()
-                            repository.logout()
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            val result = repository.logout()
+                            dataActionRunning = false
+                            demoLoggedIn = false
+                            if (result is ApiResult.Error) {
+                                syncNotice = "已退出本机登录；服务端注销请求失败"
+                            }
                         }
-                        demoLoggedIn = false
-                        savedRecords.clear()
-                        saveConversations(preferences, savedRecords)
-                        liveLines.clear()
-                        sessionStartedAt = 0L
-                        glossaryTerms.clear()
-                        quickPhrases.clear()
-                        saveTerms(preferences, glossaryTerms)
-                        saveQuickPhrases(preferences, quickPhrases)
+                    },
+                    onClearAccountData = {
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            when (val result = repository.clearAllData()) {
+                                is ApiResult.Success -> {
+                                    clearLocalHistory()
+                                    clearLocalPersonalization()
+                                    liveLines.clear()
+                                    sessionStartedAt = 0L
+                                    repository.logout()
+                                    demoLoggedIn = false
+                                    syncNotice = "账户数据已清除"
+                                }
+                                is ApiResult.Error -> syncNotice = result.message
+                            }
+                            dataActionRunning = false
+                        }
                     }, onUsage = { showUsage = true },
                     onClearHistory = {
                         if (demoLoggedIn) {
-                            scope.launch {
+                            if (!dataActionRunning) scope.launch {
+                                dataActionRunning = true
                                 when (val result = repository.clearHistory()) {
-                                    is ApiResult.Success -> remoteRecords.clear()
+                                    is ApiResult.Success -> {
+                                        clearLocalHistory()
+                                        reloadHome()
+                                        syncNotice = "会话记录已清空"
+                                    }
                                     is ApiResult.Error -> syncNotice = result.message
                                 }
-                                reloadHome()
+                                dataActionRunning = false
                             }
+                        } else {
+                            clearLocalHistory()
+                            syncNotice = "本机会话已清空"
                         }
-                        savedRecords.clear()
-                        saveConversations(preferences, savedRecords)
+                    },
+                    onClearPersonalization = {
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            when (val result = repository.clearPersonalization()) {
+                                is ApiResult.Success -> {
+                                    clearLocalPersonalization()
+                                    syncNotice = "个性化数据已清空"
+                                }
+                                is ApiResult.Error -> syncNotice = result.message
+                            }
+                            dataActionRunning = false
+                        }
                     },
                     onVoiceModeChange = {
                         voiceMode = it

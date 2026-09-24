@@ -242,8 +242,11 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
 
 @Composable
 internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
-    voiceStyle: String, demoLoggedIn: Boolean, onLogin: () -> Unit, onLogout: () -> Unit,
-    onDeleteAccount: () -> Unit, onUsage: () -> Unit, onClearHistory: () -> Unit,
+    voiceStyle: String, demoLoggedIn: Boolean, accountName: String?, accountEmail: String?,
+    remoteCount: Long, dataActionRunning: Boolean,
+    onLogin: () -> Unit, onLogout: () -> Unit,
+    onClearAccountData: () -> Unit, onUsage: () -> Unit, onClearHistory: () -> Unit,
+    onClearPersonalization: () -> Unit,
     onVoiceModeChange: (String) -> Unit, onVoiceStyleChange: (String) -> Unit,
     ttsSpeed: Float, onTtsSpeedChange: (Float) -> Unit,
     recognitionLanguage: String, onLanguageChange: (String) -> Unit,
@@ -280,6 +283,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 "logout" -> "退出登录？"
                 "delete" -> "清除账户数据"
                 "clear" -> "清空全部会话？"
+                "personalization" -> "清空个性化数据？"
                 else -> "隐私与数据"
             })
         }, text = {
@@ -537,11 +541,15 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                         color = ink, fontSize = 14.sp, lineHeight = 22.sp)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = { onLogout(); dialog = "" },
+                        enabled = !dataActionRunning,
                         colors = ButtonDefaults.buttonColors(containerColor = teal),
-                        modifier = Modifier.fillMaxWidth()) { Text("确认退出") }
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在退出…" else "确认退出")
+                    }
                 }
                 "delete" -> Column {
-                    Text("这会清除服务器上的会话与个性化数据，同时清除本机会话；该操作不可撤销。",
+                    Text("这会清除服务器和本机的会话、术语、关键词及快捷短语，然后退出登录。" +
+                        "当前接口不会删除登录账号本身。该操作不可撤销。",
                         color = ink, fontSize = 14.sp, lineHeight = 22.sp)
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(value = deleteCode, onValueChange = {
@@ -553,28 +561,43 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                         Text("我了解本机会话也会清除", fontSize = 13.sp, color = secondary)
                     }
                     Button(onClick = {
-                        terms.clear()
-                        quickPhrases.clear()
-                        onTermsChanged()
-                        onQuickPhrasesChanged()
-                        onDeleteAccount()
+                        onClearAccountData()
                         deleteCode = ""
                         deleteAgreed = false
                         dialog = ""
-                    }, enabled = deleteCode == "123456" && deleteAgreed,
+                    }, enabled = deleteCode == "123456" && deleteAgreed && !dataActionRunning,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth()) { Text("验证并清除") }
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在清除…" else "验证并清除")
+                    }
                 }
                 "clear" -> Column {
-                    Text("将删除这台设备上保存的全部真实会话。示例内容会继续保留，删除后无法恢复。",
+                    Text(if (demoLoggedIn)
+                        "将删除账号服务端和本机保存的全部真实会话。示例内容会继续保留。"
+                    else "将删除这台设备上保存的全部真实会话。示例内容会继续保留。",
                         color = ink, fontSize = 14.sp, lineHeight = 22.sp)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = { onClearHistory(); dialog = "" },
-                        enabled = savedCount > 0,
+                        enabled = (savedCount > 0 || remoteCount > 0) && !dataActionRunning,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.fillMaxWidth()) { Text("确认清空全部会话") }
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在清空…" else "确认清空全部会话")
+                    }
+                }
+                "personalization" -> Column {
+                    Text("将删除账号服务端和本机保存的术语、关键词及快捷短语，" +
+                        "不会删除会话记录。该操作不可撤销。",
+                        color = ink, fontSize = 14.sp, lineHeight = 22.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = { onClearPersonalization(); dialog = "" },
+                        enabled = !dataActionRunning,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在清空…" else "确认清空个性化数据")
+                    }
                 }
                 "usage" -> Text("已保存 $savedCount 段本机会话。语音识别和播报调用设备服务，" +
                     "应用无法统计服务商的用量或额度。当前版本没有付费功能。",
@@ -586,8 +609,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                     else "当前设备没有可用的语音识别服务。你仍可输入文字并使用设备语音引擎播报。",
                     fontSize = 14.sp, color = ink, lineHeight = 22.sp)
                 else -> Text("原始录音默认不保存。麦克风权限仅在点击“语音”时请求；系统识别服务" +
-                    "可能根据其实现上传音频，具体是否联网取决于设备服务商。应用只保存识别后的文字，" +
-                    "关闭自动备份，不进行账户同步；可删除单条或清空全部会话。课堂、会议等场景可能" +
+                    "可能根据其实现上传音频，具体是否联网取决于设备服务商。应用只保存识别后的文字；" +
+                    "登录后会同步会话和个性化数据，可删除单条或清空全部数据。课堂、会议等场景可能" +
                     "涉及他人声音，请遵守所在地录音和隐私规则。",
                     fontSize = 14.sp, color = ink, lineHeight = 22.sp)
             }
@@ -603,10 +626,13 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         Surface(color = deep, shape = RoundedCornerShape(22.dp),
             modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(22.dp)) {
-                Text(if (demoLoggedIn) "听见 · 已登录" else "听见 · 本机体验", color = white,
+                Text(if (demoLoggedIn) accountName?.ifBlank { null } ?: "听见用户"
+                    else "听见 · 本机体验", color = white,
                     fontWeight = FontWeight.Bold, fontSize = 21.sp)
                 Spacer(Modifier.height(8.dp))
-                Text("已保存 $savedCount 段本机会话 · 不上传、不跨设备同步",
+                Text(if (demoLoggedIn)
+                    "${accountEmail.orEmpty()} · 云端 $remoteCount 段会话"
+                else "已保存 $savedCount 段本机会话 · 不上传、不跨设备同步",
                     color = Color(0xFFC1E9E0), fontSize = 13.sp)
                 Spacer(Modifier.height(13.dp))
                 TextButton(onClick = {
@@ -687,7 +713,14 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         SettingsItem("隐私与数据", "麦克风权限 · 本机存储") { dialog = "privacy" }
         Spacer(Modifier.height(10.dp))
         SettingsItem("清空全部会话", if (savedCount > 0) "将删除 $savedCount 段本机会话"
-            else "当前没有本机会话") { dialog = "clear" }
+            else if (remoteCount > 0) "将删除云端 $remoteCount 段会话"
+            else "当前没有真实会话") { dialog = "clear" }
+        if (demoLoggedIn) {
+            Spacer(Modifier.height(10.dp))
+            SettingsItem("清空个性化数据", "术语 · 关键词 · 快捷短语") {
+                dialog = "personalization"
+            }
+        }
         Spacer(Modifier.height(10.dp))
         SettingsItem("识别服务状态",
             if (SpeechRecognizer.isRecognitionAvailable(context)) "当前设备发现语音识别服务"
@@ -698,7 +731,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
         SettingsItem("异常状态预览", "断网 · 权限 · 额度 · 播报失败") { dialog = "errors" }
         if (demoLoggedIn) {
             Spacer(Modifier.height(10.dp))
-            SettingsItem("清除账户数据", "清除服务端数据和本机会话") {
+            SettingsItem("清除账户数据并退出", "不会删除登录账号本身") {
                 deleteCode = ""
                 deleteAgreed = false
                 dialog = "delete"
