@@ -140,3 +140,27 @@ data class PrivacyDeleteResponse(
     val glossaryTerms: Int,
     val quickPhrases: Int
 )
+
+data class UserPreferenceResponse(
+    val configured: Boolean,
+    val largeText: Boolean,
+    val voiceMode: String,
+    val voiceStyle: String,
+    val ttsSpeed: Double,
+    val recognitionLanguage: String,
+    val keywordVibration: Boolean,
+    val keywordHighlight: Boolean,
+    val autoSummary: Boolean,
+    val updatedAt: String?
+)
+
+data class UserPreferenceUpdateRequest(
+    val largeText: Boolean,
+    val voiceMode: String,
+    val voiceStyle: String,
+    val ttsSpeed: Double,
+    val recognitionLanguage: String,
+    val keywordVibration: Boolean,
+    val keywordHighlight: Boolean,
+    val autoSummary: Boolean
+)

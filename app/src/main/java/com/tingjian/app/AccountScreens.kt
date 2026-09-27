@@ -244,7 +244,8 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
 internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     voiceStyle: String, demoLoggedIn: Boolean, accountName: String?, accountEmail: String?,
     remoteCount: Long, dataActionRunning: Boolean, pendingSyncCount: Int,
-    syncRunning: Boolean, onLogin: () -> Unit, onRetrySync: () -> Unit,
+    syncRunning: Boolean, preferenceSyncRunning: Boolean, preferenceSyncError: String,
+    onLogin: () -> Unit, onRetrySync: () -> Unit, onRetryPreferenceSync: () -> Unit,
     onLogout: () -> Unit,
     onClearAccountData: () -> Unit, onUsage: () -> Unit, onClearHistory: () -> Unit,
     onClearPersonalization: () -> Unit,
@@ -714,6 +715,18 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
             SettingsItem("待同步会话",
                 if (syncRunning) "正在同步…" else "$pendingSyncCount 段等待上传，点击重试") {
                 if (!syncRunning) onRetrySync()
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+        if (demoLoggedIn) {
+            SettingsItem("交流设置同步", when {
+                preferenceSyncRunning -> "正在同步…"
+                preferenceSyncError.isNotBlank() -> "同步失败，设置已保存在本机 · 点击重试"
+                else -> "已同步到当前账号"
+            }) {
+                if (!preferenceSyncRunning && preferenceSyncError.isNotBlank()) {
+                    onRetryPreferenceSync()
+                }
             }
             Spacer(Modifier.height(10.dp))
         }

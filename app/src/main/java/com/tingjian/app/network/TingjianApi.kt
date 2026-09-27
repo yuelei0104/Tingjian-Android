@@ -106,6 +106,14 @@ interface TingjianApi {
     @DELETE("api/v1/quick-phrases/{id}")
     suspend fun deleteQuickPhrase(@Path("id") id: String): ApiEnvelope<Unit>
 
+    @GET("api/v1/preferences")
+    suspend fun preferences(): ApiEnvelope<UserPreferenceResponse>
+
+    @PUT("api/v1/preferences")
+    suspend fun updatePreferences(
+        @Body request: UserPreferenceUpdateRequest
+    ): ApiEnvelope<UserPreferenceResponse>
+
     @DELETE("api/v1/privacy/history")
     suspend fun clearHistory(): ApiEnvelope<PrivacyDeleteResponse>
 

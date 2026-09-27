@@ -21,6 +21,8 @@ import com.tingjian.app.network.SessionMessageResponse
 import com.tingjian.app.network.SessionResponse
 import com.tingjian.app.network.TingjianApi
 import com.tingjian.app.network.TokenStore
+import com.tingjian.app.network.UserPreferenceResponse
+import com.tingjian.app.network.UserPreferenceUpdateRequest
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -126,6 +128,13 @@ class TingjianRepository internal constructor(
     ): ApiResult<QuickPhraseResponse> = call { api.updateQuickPhrase(id, request) }
     suspend fun deleteQuickPhrase(id: String): ApiResult<Unit> =
         callEmpty { api.deleteQuickPhrase(id) }
+
+    suspend fun preferences(): ApiResult<UserPreferenceResponse> =
+        call { api.preferences() }
+
+    suspend fun updatePreferences(
+        request: UserPreferenceUpdateRequest
+    ): ApiResult<UserPreferenceResponse> = call { api.updatePreferences(request) }
 
     suspend fun clearHistory(): ApiResult<PrivacyDeleteResponse> =
         call { api.clearHistory() }

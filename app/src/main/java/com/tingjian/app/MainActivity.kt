@@ -50,6 +50,7 @@ import com.tingjian.app.network.NetworkModule
 import com.tingjian.app.network.GlossaryUpsertRequest
 import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.QuickPhraseUpsertRequest
+import com.tingjian.app.network.UserPreferenceUpdateRequest
 import com.tingjian.app.data.ApiResult
 import com.tingjian.app.data.resumeIndexFor
 import com.tingjian.app.data.toDashboard
@@ -116,6 +117,9 @@ private fun TingjianApp() {
     var remoteSessionCreating by remember { mutableStateOf(false) }
     var syncNotice by remember { mutableStateOf("") }
     var personalizationVersion by remember { mutableIntStateOf(0) }
+    var preferenceVersion by remember { mutableIntStateOf(0) }
+    var preferenceSyncRunning by remember { mutableStateOf(false) }
+    var preferenceSyncError by remember { mutableStateOf("") }
     var knownGlossaryIds by remember { mutableStateOf(emptySet<String>()) }
     var knownQuickPhraseIds by remember { mutableStateOf(emptySet<String>()) }
     var homeDashboard by remember { mutableStateOf<HomeDashboard?>(null) }
@@ -189,6 +193,111 @@ private fun TingjianApp() {
             }
         }
         homeRefreshing = false
+    }
+
+    fun saveDisplayPreferences() {
+        preferences.edit()
+            .putBoolean("large_text", large)
+            .putString("voice_mode", voiceMode)
+            .putString("voice_style", voiceStyle)
+            .putFloat("tts_speed", ttsSpeed)
+            .putString("recognition_language", recognitionLanguage)
+            .putBoolean("keyword_vibration", keywordVibration)
+            .putBoolean("keyword_highlight", keywordHighlight)
+            .putBoolean("auto_summary", autoSummary)
+            .apply()
+    }
+
+    fun markPreferenceChanged() {
+        saveDisplayPreferences()
+        if (demoLoggedIn) {
+            preferences.edit()
+                .putBoolean("preference_sync_pending", true)
+                .putString("preference_sync_owner", repository.email().orEmpty())
+                .apply()
+            preferenceVersion++
+        }
+    }
+
+    suspend fun syncPreferences(showSuccess: Boolean = false) {
+        if (!demoLoggedIn || preferenceSyncRunning) return
+        preferenceSyncRunning = true
+        while (demoLoggedIn) {
+            val versionAtStart = preferenceVersion
+            val request = UserPreferenceUpdateRequest(
+                large, voiceMode, voiceStyle, ttsSpeed.toDouble(), recognitionLanguage,
+                keywordVibration, keywordHighlight, autoSummary
+            )
+            when (val result = repository.updatePreferences(request)) {
+                is ApiResult.Success -> {
+                    // 请求过程中如果用户又修改了设置，立即再传最新快照。
+                    if (versionAtStart != preferenceVersion) continue
+                    preferences.edit()
+                        .putBoolean("preference_sync_pending", false)
+                        .putString("preference_sync_owner", repository.email().orEmpty())
+                        .apply()
+                    preferenceSyncError = ""
+                    if (showSuccess) syncNotice = "交流设置已同步"
+                }
+                is ApiResult.Error -> {
+                    preferenceSyncError = result.message
+                    if (showSuccess) syncNotice = "设置已保存在本机，云端同步失败"
+                }
+            }
+            break
+        }
+        preferenceSyncRunning = false
+    }
+
+    suspend fun reloadPreferences() {
+        if (!demoLoggedIn) return
+        val pendingForCurrentUser = preferences.getBoolean("preference_sync_pending", false) &&
+            preferences.getString("preference_sync_owner", null) == repository.email().orEmpty()
+        if (pendingForCurrentUser) {
+            syncPreferences()
+            return
+        }
+        when (val result = repository.preferences()) {
+            is ApiResult.Success -> {
+                val remote = result.value
+                if (!remote.configured) {
+                    syncPreferences()
+                    return
+                }
+                large = remote.largeText
+                voiceMode = remote.voiceMode
+                voiceStyle = remote.voiceStyle
+                ttsSpeed = remote.ttsSpeed.toFloat()
+                recognitionLanguage = remote.recognitionLanguage
+                keywordVibration = remote.keywordVibration
+                keywordHighlight = remote.keywordHighlight
+                autoSummary = remote.autoSummary
+                saveDisplayPreferences()
+                preferences.edit()
+                    .putBoolean("preference_sync_pending", false)
+                    .putString("preference_sync_owner", repository.email().orEmpty())
+                    .apply()
+                preferenceSyncError = ""
+            }
+            is ApiResult.Error -> preferenceSyncError = result.message
+        }
+    }
+
+    fun resetLocalPreferences() {
+        large = false
+        voiceMode = "自动"
+        voiceStyle = "自然"
+        ttsSpeed = 1.0f
+        recognitionLanguage = "中英混合"
+        keywordVibration = true
+        keywordHighlight = true
+        autoSummary = false
+        saveDisplayPreferences()
+        preferences.edit()
+            .putBoolean("preference_sync_pending", false)
+            .remove("preference_sync_owner")
+            .apply()
+        preferenceSyncError = ""
     }
 
     fun updateLocalConversation(
@@ -491,6 +600,7 @@ private fun TingjianApp() {
 
     LaunchedEffect(demoLoggedIn) {
         if (demoLoggedIn) {
+            reloadPreferences()
             reloadHome()
             reloadRemoteHistory()
             reloadPersonalization()
@@ -517,6 +627,8 @@ private fun TingjianApp() {
             homeRefreshing = false
             knownGlossaryIds = emptySet()
             knownQuickPhraseIds = emptySet()
+            preferenceSyncRunning = false
+            preferenceSyncError = ""
         }
     }
     DisposableEffect(Unit) {
@@ -531,8 +643,19 @@ private fun TingjianApp() {
         onDispose { runCatching { connectivity.unregisterNetworkCallback(callback) } }
     }
     LaunchedEffect(networkGeneration) {
-        if (networkGeneration > 0 && demoLoggedIn && pendingSyncCount > 0) {
-            syncPendingConversations()
+        if (networkGeneration > 0 && demoLoggedIn) {
+            if (pendingSyncCount > 0) syncPendingConversations()
+            val pendingOwner = preferences.getString("preference_sync_owner", null)
+            if (preferences.getBoolean("preference_sync_pending", false) &&
+                pendingOwner == repository.email().orEmpty()) {
+                syncPreferences()
+            }
+        }
+    }
+    LaunchedEffect(preferenceVersion) {
+        if (preferenceVersion > 0 && demoLoggedIn) {
+            delay(400)
+            syncPreferences()
         }
     }
     LaunchedEffect(personalizationVersion) {
@@ -641,7 +764,7 @@ private fun TingjianApp() {
                     onOpen = { openConversation(it) })
                 1 -> LiveScreen(large, liveLines, recognitionLanguage, onLanguageChange = {
                     recognitionLanguage = it
-                    preferences.edit().putString("recognition_language", it).apply()
+                    markPreferenceChanged()
                 }, voiceMode = voiceMode, voiceStyle = voiceStyle, ttsSpeed = ttsSpeed,
                     keywords = (enabledKeywords(glossaryTerms) + keywordRules
                         .filter { it.enabled }.map { it.phrase }).distinct(),
@@ -711,13 +834,21 @@ private fun TingjianApp() {
                     demoLoggedIn = demoLoggedIn,
                     accountName = repository.displayName(), accountEmail = repository.email(),
                     remoteCount = homeDashboard?.conversationCount ?: historyTotal,
-                    dataActionRunning = dataActionRunning || conversationSyncRunning,
+                    dataActionRunning = dataActionRunning || conversationSyncRunning ||
+                        preferenceSyncRunning,
                     pendingSyncCount = pendingSyncCount,
                     syncRunning = conversationSyncRunning,
+                    preferenceSyncRunning = preferenceSyncRunning,
+                    preferenceSyncError = preferenceSyncError,
                     onLogin = { showLogin = true },
                     onRetrySync = {
                         if (demoLoggedIn) scope.launch {
                             syncPendingConversations(showSuccess = true)
+                        }
+                    },
+                    onRetryPreferenceSync = {
+                        if (demoLoggedIn) scope.launch {
+                            syncPreferences(showSuccess = true)
                         }
                     },
                     onLogout = {
@@ -738,6 +869,7 @@ private fun TingjianApp() {
                                 is ApiResult.Success -> {
                                     clearLocalHistory()
                                     clearLocalPersonalization()
+                                    resetLocalPreferences()
                                     liveLines.clear()
                                     sessionStartedAt = 0L
                                     repository.logout()
@@ -783,25 +915,25 @@ private fun TingjianApp() {
                     },
                     onVoiceModeChange = {
                         voiceMode = it
-                        preferences.edit().putString("voice_mode", it).apply()
+                        markPreferenceChanged()
                     }, onVoiceStyleChange = {
                         voiceStyle = it
-                        preferences.edit().putString("voice_style", it).apply()
+                        markPreferenceChanged()
                     }, ttsSpeed = ttsSpeed, onTtsSpeedChange = {
                         ttsSpeed = it
-                        preferences.edit().putFloat("tts_speed", it).apply()
+                        markPreferenceChanged()
                     }, recognitionLanguage = recognitionLanguage,
                     onLanguageChange = {
                         recognitionLanguage = it
-                        preferences.edit().putString("recognition_language", it).apply()
+                        markPreferenceChanged()
                     }, keywordVibration = keywordVibration,
                     onKeywordVibrationChange = {
                         keywordVibration = it
-                        preferences.edit().putBoolean("keyword_vibration", it).apply()
+                        markPreferenceChanged()
                     }, keywordHighlight = keywordHighlight,
                     onKeywordHighlightChange = {
                         keywordHighlight = it
-                        preferences.edit().putBoolean("keyword_highlight", it).apply()
+                        markPreferenceChanged()
                     }, terms = glossaryTerms, quickPhrases = quickPhrases,
                     onTermsChanged = {
                         saveTerms(preferences, glossaryTerms)
@@ -813,10 +945,10 @@ private fun TingjianApp() {
                     },
                     autoSummary = autoSummary, onAutoSummaryChange = {
                         autoSummary = it
-                        preferences.edit().putBoolean("auto_summary", it).apply()
+                        markPreferenceChanged()
                     }, onLargeChange = {
                         large = it
-                        preferences.edit().putBoolean("large_text", it).apply()
+                        markPreferenceChanged()
                     },
                     onLeave = {
                         entered = false
