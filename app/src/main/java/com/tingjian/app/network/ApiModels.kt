@@ -45,6 +45,7 @@ data class HomeResponse(
 )
 
 data class SessionCreateRequest(val title: String)
+data class SessionRenameRequest(val title: String)
 data class SessionMessageRequest(val speaker: String, val content: String)
 data class SessionResponse(
     val id: String,

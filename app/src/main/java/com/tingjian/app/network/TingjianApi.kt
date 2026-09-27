@@ -5,6 +5,7 @@ import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PATCH
 import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -36,6 +37,12 @@ interface TingjianApi {
 
     @GET("api/v1/sessions/{id}")
     suspend fun session(@Path("id") id: String): ApiEnvelope<SessionDetailResponse>
+
+    @PATCH("api/v1/sessions/{id}")
+    suspend fun renameSession(
+        @Path("id") id: String,
+        @Body request: SessionRenameRequest
+    ): ApiEnvelope<SessionResponse>
 
     @POST("api/v1/sessions/{id}/messages")
     suspend fun addMessage(

@@ -135,6 +135,8 @@ private fun TingjianApp() {
     var detailLoading by remember { mutableStateOf(false) }
     var detailError by remember { mutableStateOf("") }
     var detailRequestVersion by remember { mutableIntStateOf(0) }
+    var detailActionRunning by remember { mutableStateOf(false) }
+    var detailActionError by remember { mutableStateOf("") }
     var dataActionRunning by remember { mutableStateOf(false) }
     var conversationSyncRunning by remember { mutableStateOf(false) }
     var networkGeneration by remember { mutableIntStateOf(0) }
@@ -560,6 +562,8 @@ private fun TingjianApp() {
         selected = record
         detailLoading = false
         detailError = ""
+        detailActionRunning = false
+        detailActionError = ""
         val serverId = record.serverId ?: return
         if (!demoLoggedIn || record.transcript.isNotEmpty()) return
         val requestVersion = ++detailRequestVersion
@@ -575,6 +579,36 @@ private fun TingjianApp() {
             }
             if (requestVersion == detailRequestVersion) detailLoading = false
         }
+    }
+
+    fun renameConversationLocally(record: Conversation, title: String) {
+        var localChanged = false
+        savedRecords.indices.forEach { index ->
+            val item = savedRecords[index]
+            if (item.id == record.id ||
+                (record.serverId != null && item.serverId == record.serverId)) {
+                savedRecords[index] = item.copy(title = title)
+                localChanged = true
+            }
+        }
+        if (localChanged) saveConversations(preferences, savedRecords)
+        remoteRecords.indices.forEach { index ->
+            if (remoteRecords[index].serverId == record.serverId) {
+                remoteRecords[index] = remoteRecords[index].copy(title = title)
+            }
+        }
+        selected = selected?.copy(title = title)
+    }
+
+    fun removeConversationLocally(record: Conversation) {
+        savedRecords.removeAll {
+            it.id == record.id || (record.serverId != null && it.serverId == record.serverId)
+        }
+        saveConversations(preferences, savedRecords)
+        if (record.serverId != null) {
+            remoteRecords.removeAll { it.serverId == record.serverId }
+        }
+        selected = null
     }
 
     fun clearLocalHistory() {
@@ -621,6 +655,8 @@ private fun TingjianApp() {
             detailLoading = false
             detailError = ""
             detailRequestVersion++
+            detailActionRunning = false
+            detailActionError = ""
             keywordRules.clear()
             homeDashboard = null
             homeError = ""
@@ -710,36 +746,52 @@ private fun TingjianApp() {
                     if (keywordHighlight) enabledKeywords(glossaryTerms) else emptyList(),
                     loading = detailLoading, loadError = detailError,
                     onRetry = { openConversation(record) },
+                    actionRunning = detailActionRunning || conversationSyncRunning,
+                    actionError = detailActionError,
                     onBack = {
                         detailRequestVersion++
                         detailLoading = false
                         detailError = ""
+                        detailActionError = ""
                         selected = null
                     },
                     onRename = { newTitle ->
-                    val index = savedRecords.indexOfFirst { it.id == record.id }
-                    if (index >= 0) {
-                        val renamed = savedRecords[index].copy(title = newTitle)
-                        savedRecords[index] = renamed
-                        saveConversations(preferences, savedRecords)
-                        selected = renamed
+                    val serverId = record.serverId
+                    if (serverId == null) {
+                        renameConversationLocally(record, newTitle)
+                    } else if (!detailActionRunning && !conversationSyncRunning) {
+                        scope.launch {
+                            detailActionRunning = true
+                            detailActionError = ""
+                            when (val result = repository.renameSession(serverId, newTitle)) {
+                                is ApiResult.Success -> {
+                                    renameConversationLocally(record, result.value.title)
+                                    reloadHome()
+                                }
+                                is ApiResult.Error -> detailActionError = result.message
+                            }
+                            detailActionRunning = false
+                        }
                     }
                 }, onDelete = {
-                    record.serverId?.let { serverId ->
+                    val serverId = record.serverId
+                    if (serverId == null) {
+                        removeConversationLocally(record)
+                    } else if (!detailActionRunning && !conversationSyncRunning) {
                         scope.launch {
+                            detailActionRunning = true
+                            detailActionError = ""
                             when (val result = repository.deleteHistory(serverId)) {
                                 is ApiResult.Success -> {
-                                    remoteRecords.removeAll { it.serverId == serverId }
+                                    removeConversationLocally(record)
                                     historyTotal = (historyTotal - 1L).coerceAtLeast(0L)
                                     reloadHome()
                                 }
-                                is ApiResult.Error -> syncNotice = result.message
+                                is ApiResult.Error -> detailActionError = result.message
                             }
+                            detailActionRunning = false
                         }
                     }
-                    savedRecords.removeAll { it.id == record.id }
-                    saveConversations(preferences, savedRecords)
-                    selected = null
                 })
             } else when (tab) {
                 0 -> HomeScreen(allRecords, homeDashboard, homeRefreshing, homeError,

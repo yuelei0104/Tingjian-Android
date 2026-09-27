@@ -169,6 +169,7 @@ internal fun HistoryScreen(records: List<Conversation>, loggedIn: Boolean, remot
 internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boolean,
     keywords: List<String>,
     loading: Boolean, loadError: String, onRetry: () -> Unit,
+    actionRunning: Boolean, actionError: String,
     onBack: () -> Unit,
     onRename: (String) -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current
@@ -201,7 +202,9 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
                         onRename(title)
                         rename = false
                     }
-                }, enabled = newTitle.isNotBlank()) { Text("保存", color = teal) }
+                }, enabled = newTitle.isNotBlank() && !actionRunning) {
+                    Text(if (actionRunning) "保存中…" else "保存", color = teal)
+                }
             },
             dismissButton = {
                 TextButton(onClick = { rename = false }) { Text("取消") }
@@ -214,8 +217,10 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
                 "删除后无法找回本机保存的这段文字。"
             else "删除后，这段会话会从听见服务和当前设备中移除。") },
             confirmButton = {
-                TextButton(onClick = { confirmDelete = false; onDelete() }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { confirmDelete = false; onDelete() },
+                    enabled = !actionRunning) {
+                    Text(if (actionRunning) "删除中…" else "删除",
+                        color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -247,6 +252,19 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
                     TextButton(onClick = onRetry) { Text("重试", color = teal) }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+        }
+        if (actionError.isNotBlank()) {
+            Surface(color = Color(0xFFFFF2C7), shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()) {
+                Text(actionError, Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    color = ink, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+        if (actionRunning) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = teal,
+                trackColor = divider)
             Spacer(Modifier.height(12.dp))
         }
         if (!loading && loadError.isBlank() && record.transcript.isEmpty()) {
@@ -311,18 +329,19 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
         if (record.isExample) {
             Text("以上是示例内容，不是真实识别结果。", color = secondary, fontSize = 12.sp)
         } else {
-            Text(if (record.serverId == null)
-                "记录仅保存在本机，卸载应用可能清除记录。"
-            else "这段记录已保存到听见服务。",
+            Text(when {
+                record.syncPending -> "记录已保存在本机，正在等待同步到听见服务。"
+                record.serverId == null -> "记录仅保存在本机，卸载应用可能清除记录。"
+                else -> "这段记录已保存到听见服务。"
+            },
                 color = secondary, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (record.serverId == null) {
-                    TextButton(onClick = { newTitle = record.title; rename = true }) {
-                        Text("重命名", color = teal)
-                    }
+                TextButton(onClick = { newTitle = record.title; rename = true },
+                    enabled = !actionRunning) {
+                    Text("重命名", color = teal)
                 }
-                TextButton(onClick = { confirmDelete = true }) {
+                TextButton(onClick = { confirmDelete = true }, enabled = !actionRunning) {
                     Text("删除此会话", color = MaterialTheme.colorScheme.error)
                 }
             }

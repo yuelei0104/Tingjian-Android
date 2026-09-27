@@ -18,6 +18,7 @@ import com.tingjian.app.network.SessionCreateRequest
 import com.tingjian.app.network.SessionDetailResponse
 import com.tingjian.app.network.SessionMessageRequest
 import com.tingjian.app.network.SessionMessageResponse
+import com.tingjian.app.network.SessionRenameRequest
 import com.tingjian.app.network.SessionResponse
 import com.tingjian.app.network.TingjianApi
 import com.tingjian.app.network.TokenStore
@@ -75,6 +76,9 @@ class TingjianRepository internal constructor(
 
     suspend fun session(id: String): ApiResult<SessionDetailResponse> =
         call { api.session(id) }
+
+    suspend fun renameSession(id: String, title: String): ApiResult<SessionResponse> =
+        call { api.renameSession(id, SessionRenameRequest(title.trim())) }
 
     suspend fun addMessage(
         sessionId: String,
