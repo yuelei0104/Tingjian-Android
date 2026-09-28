@@ -2,7 +2,10 @@ package com.tingjian.app.data
 
 import com.tingjian.app.network.ApiEnvelope
 import com.tingjian.app.network.AccountDeleteRequest
+import com.tingjian.app.network.AccountPasswordChangeRequest
+import com.tingjian.app.network.AccountProfileUpdateRequest
 import com.tingjian.app.network.AuthTokenResponse
+import com.tingjian.app.network.AuthUserResponse
 import com.tingjian.app.network.GlossaryResponse
 import com.tingjian.app.network.GlossaryUpsertRequest
 import com.tingjian.app.network.HistoryListResponse
@@ -68,6 +71,27 @@ class TingjianRepository internal constructor(
 
     suspend fun deleteAccount(password: String): ApiResult<Unit> {
         val result = callEmpty { api.deleteAccount(AccountDeleteRequest(password)) }
+        if (result is ApiResult.Success) tokenStore.clear()
+        return result
+    }
+
+    suspend fun accountProfile(): ApiResult<AuthUserResponse> =
+        saveProfile(call { api.accountProfile() })
+
+    suspend fun updateAccountProfile(displayName: String): ApiResult<AuthUserResponse> =
+        saveProfile(call {
+            api.updateAccountProfile(AccountProfileUpdateRequest(displayName.trim()))
+        })
+
+    suspend fun changeAccountPassword(
+        currentPassword: String,
+        newPassword: String
+    ): ApiResult<Unit> {
+        val result = callEmpty {
+            api.changeAccountPassword(
+                AccountPasswordChangeRequest(currentPassword, newPassword)
+            )
+        }
         if (result is ApiResult.Success) tokenStore.clear()
         return result
     }
@@ -159,6 +183,11 @@ class TingjianRepository internal constructor(
     ): ApiResult<AuthTokenResponse> = when (val result = call(block)) {
         is ApiResult.Success -> result.also { tokenStore.save(it.value) }
         is ApiResult.Error -> result
+    }
+
+    private fun saveProfile(result: ApiResult<AuthUserResponse>): ApiResult<AuthUserResponse> {
+        if (result is ApiResult.Success) tokenStore.updateProfile(result.value)
+        return result
     }
 
     private suspend fun <T> call(block: suspend () -> ApiEnvelope<T>): ApiResult<T> = try {

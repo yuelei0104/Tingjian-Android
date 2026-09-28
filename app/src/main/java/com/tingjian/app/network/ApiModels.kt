@@ -12,6 +12,8 @@ data class RegisterRequest(val email: String, val password: String, val displayN
 data class LoginRequest(val email: String, val password: String)
 data class RefreshTokenRequest(val refreshToken: String)
 data class AccountDeleteRequest(val password: String)
+data class AccountProfileUpdateRequest(val displayName: String)
+data class AccountPasswordChangeRequest(val currentPassword: String, val newPassword: String)
 data class AuthUserResponse(
     val id: String,
     val email: String,

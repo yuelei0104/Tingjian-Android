@@ -249,6 +249,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     syncRunning: Boolean, preferenceSyncRunning: Boolean, preferenceSyncError: String,
     onLogin: () -> Unit, onRetrySync: () -> Unit, onRetryPreferenceSync: () -> Unit,
     onLogout: () -> Unit,
+    onUpdateProfile: (String) -> Unit,
+    onChangePassword: (String, String) -> Unit,
     onClearAccountData: () -> Unit, onDeleteAccount: (String) -> Unit,
     onUsage: () -> Unit, onClearHistory: () -> Unit,
     onClearPersonalization: () -> Unit,
@@ -276,6 +278,11 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     var deleteAgreed by remember { mutableStateOf(false) }
     var accountPassword by remember { mutableStateOf("") }
     var accountDeletePhrase by remember { mutableStateOf("") }
+    var profileName by remember(accountName) { mutableStateOf(accountName.orEmpty()) }
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var passwordError by remember { mutableStateOf("") }
     var dialog by remember { mutableStateOf("") }
     if (dialog.isNotEmpty()) {
         AlertDialog(onDismissRequest = { dialog = "" }, title = {
@@ -287,6 +294,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 "terms" -> "我的术语与热词"
                 "phrases" -> "快捷短语管理"
                 "errors" -> "异常状态预览"
+                "profile" -> "账号资料"
+                "password" -> "修改登录密码"
                 "logout" -> "退出登录？"
                 "delete" -> "清除账户数据"
                 "account-delete" -> "永久注销账号"
@@ -544,6 +553,77 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                         }
                     }
                 }
+                "profile" -> Column {
+                    Text("邮箱用于登录，当前版本暂不支持修改邮箱。",
+                        color = secondary, fontSize = 13.sp, lineHeight = 20.sp)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(value = accountEmail.orEmpty(), onValueChange = {},
+                        enabled = false, label = { Text("登录邮箱") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = profileName, onValueChange = {
+                        profileName = it.take(40)
+                    }, label = { Text("昵称") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = {
+                        onUpdateProfile(profileName)
+                        dialog = ""
+                    }, enabled = profileName.isNotBlank() && !dataActionRunning,
+                        colors = ButtonDefaults.buttonColors(containerColor = teal),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在保存…" else "保存资料")
+                    }
+                }
+                "password" -> Column {
+                    Text("修改成功后，包括当前设备在内的所有设备都需要重新登录。",
+                        color = secondary, fontSize = 13.sp, lineHeight = 20.sp)
+                    Spacer(Modifier.height(10.dp))
+                    listOf(
+                        Triple("当前密码", currentPassword) { value: String ->
+                            currentPassword = value.take(128)
+                        },
+                        Triple("新密码（至少 8 位）", newPassword) { value: String ->
+                            newPassword = value.take(128)
+                        },
+                        Triple("再次输入新密码", confirmPassword) { value: String ->
+                            confirmPassword = value.take(128)
+                        }
+                    ).forEachIndexed { index, (label, value, update) ->
+                        if (index > 0) Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = value, onValueChange = {
+                            update(it)
+                            passwordError = ""
+                        }, label = { Text(label) }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth())
+                    }
+                    if (passwordError.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(passwordError, color = MaterialTheme.colorScheme.error,
+                            fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = {
+                        if (newPassword != confirmPassword) {
+                            passwordError = "两次输入的新密码不一致"
+                        } else if (newPassword == currentPassword) {
+                            passwordError = "新密码不能与当前密码相同"
+                        } else {
+                            onChangePassword(currentPassword, newPassword)
+                            currentPassword = ""
+                            newPassword = ""
+                            confirmPassword = ""
+                            dialog = ""
+                        }
+                    }, enabled = currentPassword.isNotBlank() && newPassword.length >= 8 &&
+                        confirmPassword.length >= 8 && !dataActionRunning,
+                        colors = ButtonDefaults.buttonColors(containerColor = teal),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在修改…" else "修改密码")
+                    }
+                }
                 "logout" -> Column {
                     Text("退出不会删除本机保存的会话和设置。未发送的输入草稿仍保留在字幕页。",
                         color = ink, fontSize = 14.sp, lineHeight = 22.sp)
@@ -681,6 +761,21 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                     Text(if (demoLoggedIn) "退出登录" else "登录或注册  →",
                         color = Color(0xFFDDF8EF), fontSize = 13.sp)
                 }
+            }
+        }
+        if (demoLoggedIn) {
+            Spacer(Modifier.height(18.dp))
+            SettingsItem("账号资料", accountName?.ifBlank { null } ?: "设置昵称") {
+                profileName = accountName.orEmpty()
+                dialog = "profile"
+            }
+            Spacer(Modifier.height(10.dp))
+            SettingsItem("修改登录密码", "修改后所有设备需要重新登录") {
+                currentPassword = ""
+                newPassword = ""
+                confirmPassword = ""
+                passwordError = ""
+                dialog = "password"
             }
         }
         Spacer(Modifier.height(28.dp))

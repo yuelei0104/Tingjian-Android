@@ -27,6 +27,19 @@ interface TingjianApi {
     @HTTP(method = "DELETE", path = "api/v1/account", hasBody = true)
     suspend fun deleteAccount(@Body request: AccountDeleteRequest): ApiEnvelope<Unit>
 
+    @GET("api/v1/account")
+    suspend fun accountProfile(): ApiEnvelope<AuthUserResponse>
+
+    @PATCH("api/v1/account")
+    suspend fun updateAccountProfile(
+        @Body request: AccountProfileUpdateRequest
+    ): ApiEnvelope<AuthUserResponse>
+
+    @PUT("api/v1/account/password")
+    suspend fun changeAccountPassword(
+        @Body request: AccountPasswordChangeRequest
+    ): ApiEnvelope<Unit>
+
     @GET("api/v1/home")
     suspend fun home(@Query("recentSize") recentSize: Int = 3): ApiEnvelope<HomeResponse>
 

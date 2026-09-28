@@ -34,6 +34,14 @@ class TokenStore(context: Context) : TokenProvider {
             .apply()
     }
 
+    fun updateProfile(user: AuthUserResponse) {
+        preferences.edit()
+            .putString(KEY_USER_ID, user.id)
+            .putString(KEY_EMAIL, user.email)
+            .putString(KEY_DISPLAY_NAME, user.displayName)
+            .apply()
+    }
+
     fun clear() {
         preferences.edit().clear().apply()
     }

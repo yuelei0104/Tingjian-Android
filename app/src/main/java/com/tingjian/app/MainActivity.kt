@@ -634,6 +634,7 @@ private fun TingjianApp() {
 
     LaunchedEffect(demoLoggedIn) {
         if (demoLoggedIn) {
+            repository.accountProfile()
             reloadPreferences()
             reloadHome()
             reloadRemoteHistory()
@@ -912,6 +913,31 @@ private fun TingjianApp() {
                             if (result is ApiResult.Error) {
                                 syncNotice = "已退出本机登录；服务端注销请求失败"
                             }
+                        }
+                    },
+                    onUpdateProfile = { displayName ->
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            when (val result = repository.updateAccountProfile(displayName)) {
+                                is ApiResult.Success -> syncNotice = "账号资料已更新"
+                                is ApiResult.Error -> syncNotice = result.message
+                            }
+                            dataActionRunning = false
+                        }
+                    },
+                    onChangePassword = { currentPassword, newPassword ->
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            when (val result = repository.changeAccountPassword(
+                                currentPassword, newPassword
+                            )) {
+                                is ApiResult.Success -> {
+                                    demoLoggedIn = false
+                                    syncNotice = "密码已修改，请使用新密码重新登录"
+                                }
+                                is ApiResult.Error -> syncNotice = result.message
+                            }
+                            dataActionRunning = false
                         }
                     },
                     onClearAccountData = {
