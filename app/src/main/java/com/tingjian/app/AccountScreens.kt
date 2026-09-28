@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tingjian.app.ui.theme.TingjianTheme
@@ -171,6 +172,7 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                     error = ""
                 }, label = { Text("密码（至少 8 位）") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth())
                 if (error.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -247,7 +249,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     syncRunning: Boolean, preferenceSyncRunning: Boolean, preferenceSyncError: String,
     onLogin: () -> Unit, onRetrySync: () -> Unit, onRetryPreferenceSync: () -> Unit,
     onLogout: () -> Unit,
-    onClearAccountData: () -> Unit, onUsage: () -> Unit, onClearHistory: () -> Unit,
+    onClearAccountData: () -> Unit, onDeleteAccount: (String) -> Unit,
+    onUsage: () -> Unit, onClearHistory: () -> Unit,
     onClearPersonalization: () -> Unit,
     onVoiceModeChange: (String) -> Unit, onVoiceStyleChange: (String) -> Unit,
     ttsSpeed: Float, onTtsSpeedChange: (Float) -> Unit,
@@ -271,6 +274,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     var editingPhraseIndex by remember { mutableIntStateOf(-1) }
     var deleteCode by remember { mutableStateOf("") }
     var deleteAgreed by remember { mutableStateOf(false) }
+    var accountPassword by remember { mutableStateOf("") }
+    var accountDeletePhrase by remember { mutableStateOf("") }
     var dialog by remember { mutableStateOf("") }
     if (dialog.isNotEmpty()) {
         AlertDialog(onDismissRequest = { dialog = "" }, title = {
@@ -284,6 +289,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 "errors" -> "异常状态预览"
                 "logout" -> "退出登录？"
                 "delete" -> "清除账户数据"
+                "account-delete" -> "永久注销账号"
                 "clear" -> "清空全部会话？"
                 "personalization" -> "清空个性化数据？"
                 else -> "隐私与数据"
@@ -574,6 +580,36 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                         Text(if (dataActionRunning) "正在清除…" else "验证并清除")
                     }
                 }
+                "account-delete" -> Column {
+                    Text("账号注销后无法恢复。服务器和本机保存的会话、术语、关键词、快捷短语、" +
+                        "偏好设置及所有登录令牌都会被永久删除。",
+                        color = ink, fontSize = 14.sp, lineHeight = 22.sp)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(value = accountPassword, onValueChange = {
+                        accountPassword = it.take(128)
+                    }, label = { Text("当前密码") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = accountDeletePhrase, onValueChange = {
+                        accountDeletePhrase = it.take(4)
+                    }, label = { Text("输入“注销账号”确认") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                    Button(onClick = {
+                        onDeleteAccount(accountPassword)
+                        accountPassword = ""
+                        accountDeletePhrase = ""
+                        dialog = ""
+                    }, enabled = accountPassword.isNotBlank() &&
+                        accountDeletePhrase == "注销账号" && !dataActionRunning,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (dataActionRunning) "正在注销…" else "永久删除账号")
+                    }
+                }
                 "clear" -> Column {
                     Text(if (demoLoggedIn)
                         "将删除账号服务端和本机保存的全部真实会话。示例内容会继续保留。"
@@ -757,6 +793,12 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 deleteCode = ""
                 deleteAgreed = false
                 dialog = "delete"
+            }
+            Spacer(Modifier.height(10.dp))
+            SettingsItem("永久注销账号", "删除账号和全部关联数据，不可恢复") {
+                accountPassword = ""
+                accountDeletePhrase = ""
+                dialog = "account-delete"
             }
         }
         Spacer(Modifier.height(22.dp))

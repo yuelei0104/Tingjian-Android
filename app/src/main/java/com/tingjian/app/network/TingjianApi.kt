@@ -4,6 +4,7 @@ import retrofit2.Call
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.POST
 import retrofit2.http.PATCH
 import retrofit2.http.PUT
@@ -22,6 +23,9 @@ interface TingjianApi {
 
     @POST("api/auth/logout")
     suspend fun logout(@Body request: RefreshTokenRequest): ApiEnvelope<Unit>
+
+    @HTTP(method = "DELETE", path = "api/v1/account", hasBody = true)
+    suspend fun deleteAccount(@Body request: AccountDeleteRequest): ApiEnvelope<Unit>
 
     @GET("api/v1/home")
     suspend fun home(@Query("recentSize") recentSize: Int = 3): ApiEnvelope<HomeResponse>

@@ -932,6 +932,26 @@ private fun TingjianApp() {
                             }
                             dataActionRunning = false
                         }
+                    },
+                    onDeleteAccount = { password ->
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            when (val result = repository.deleteAccount(password)) {
+                                is ApiResult.Success -> {
+                                    clearLocalHistory()
+                                    clearLocalPersonalization()
+                                    resetLocalPreferences()
+                                    liveLines.clear()
+                                    sessionStartedAt = 0L
+                                    activeSessionId = null
+                                    remoteSessionCreating = false
+                                    demoLoggedIn = false
+                                    syncNotice = "账号和全部关联数据已永久删除"
+                                }
+                                is ApiResult.Error -> syncNotice = result.message
+                            }
+                            dataActionRunning = false
+                        }
                     }, onUsage = { showUsage = true },
                     onClearHistory = {
                         if (demoLoggedIn) {

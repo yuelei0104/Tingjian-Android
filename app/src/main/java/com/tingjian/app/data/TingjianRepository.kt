@@ -1,6 +1,7 @@
 package com.tingjian.app.data
 
 import com.tingjian.app.network.ApiEnvelope
+import com.tingjian.app.network.AccountDeleteRequest
 import com.tingjian.app.network.AuthTokenResponse
 import com.tingjian.app.network.GlossaryResponse
 import com.tingjian.app.network.GlossaryUpsertRequest
@@ -63,6 +64,12 @@ class TingjianRepository internal constructor(
         } finally {
             tokenStore.clear()
         }
+    }
+
+    suspend fun deleteAccount(password: String): ApiResult<Unit> {
+        val result = callEmpty { api.deleteAccount(AccountDeleteRequest(password)) }
+        if (result is ApiResult.Success) tokenStore.clear()
+        return result
     }
 
     suspend fun home(recentSize: Int = 3): ApiResult<HomeResponse> =

@@ -11,6 +11,7 @@ data class ApiEnvelope<T>(
 data class RegisterRequest(val email: String, val password: String, val displayName: String)
 data class LoginRequest(val email: String, val password: String)
 data class RefreshTokenRequest(val refreshToken: String)
+data class AccountDeleteRequest(val password: String)
 data class AuthUserResponse(
     val id: String,
     val email: String,
