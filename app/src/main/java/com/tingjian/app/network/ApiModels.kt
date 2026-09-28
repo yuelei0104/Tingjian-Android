@@ -47,6 +47,33 @@ data class HomeResponse(
     val plan: HomePlanResponse
 )
 
+data class UsageOverviewResponse(
+    val conversationCount: Long,
+    val messageCount: Long,
+    val textCharacterCount: Long,
+    val totalDurationSeconds: Long
+)
+data class UsageMetricResponse(
+    val code: String,
+    val name: String,
+    val unit: String,
+    val used: Long,
+    val limit: Long,
+    val remaining: Long,
+    val progress: Double,
+    val description: String
+)
+data class UsageResponse(
+    val planCode: String,
+    val planName: String,
+    val planDescription: String,
+    val purchasable: Boolean,
+    val periodStart: String,
+    val periodEnd: String,
+    val overview: UsageOverviewResponse,
+    val metrics: List<UsageMetricResponse>
+)
+
 data class SessionCreateRequest(val title: String)
 data class SessionRenameRequest(val title: String)
 data class SessionMessageRequest(val speaker: String, val content: String)

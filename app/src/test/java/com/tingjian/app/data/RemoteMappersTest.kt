@@ -9,6 +9,9 @@ import com.tingjian.app.network.HomeSceneResponse
 import com.tingjian.app.network.SessionDetailResponse
 import com.tingjian.app.network.SessionMessageResponse
 import com.tingjian.app.network.SessionResponse
+import com.tingjian.app.network.UsageMetricResponse
+import com.tingjian.app.network.UsageOverviewResponse
+import com.tingjian.app.network.UsageResponse
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -35,6 +38,32 @@ class RemoteMappersTest {
         assertEquals(listOf("课堂"), dashboard.scenes)
         assertEquals("session-1", dashboard.recentConversations.single().serverId)
         assertEquals("内测版", dashboard.planName)
+    }
+
+    @Test
+    fun usageResponseMapsAndCapsProgress() {
+        val response = UsageResponse(
+            planCode = "V1_BETA",
+            planName = "V1 内测",
+            planDescription = "不会自动扣费",
+            purchasable = false,
+            periodStart = "2026-09-01",
+            periodEnd = "2026-09-30",
+            overview = UsageOverviewResponse(4, 20, 600, 120),
+            metrics = listOf(
+                UsageMetricResponse(
+                    "CAPTION_SECONDS", "实时字幕", "秒",
+                    120, 3_600, 3_480, 1.5, "测试"
+                )
+            )
+        )
+
+        val dashboard = response.toDashboard()
+
+        assertEquals(4L, dashboard.conversationCount)
+        assertEquals(600L, dashboard.textCharacterCount)
+        assertEquals("2026-09-30", dashboard.periodEnd)
+        assertEquals(1f, dashboard.metrics.single().progress)
     }
 
     @Test

@@ -56,46 +56,99 @@ import com.tingjian.app.data.ApiResult
 import com.tingjian.app.network.NetworkModule
 
 @Composable
-internal fun UsageScreen(savedCount: Int, dashboard: HomeDashboard?, onBack: () -> Unit) {
+internal fun UsageScreen(
+    savedCount: Int,
+    dashboard: UsageDashboard?,
+    loggedIn: Boolean,
+    loading: Boolean,
+    error: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit
+) {
     Column(Modifier.fillMaxSize().background(canvas).verticalScroll(rememberScrollState())
         .padding(horizontal = 23.dp)) {
         Spacer(Modifier.height(18.dp))
         TextButton(onClick = onBack) { Text("←  返回", color = teal) }
         Spacer(Modifier.height(14.dp))
-        Title("用量与额度", dashboard?.planDescription
-            ?: "V1 内测界面预览，暂未开放购买。")
+        Title("用量与额度", dashboard?.planDescription ?: if (loggedIn)
+            "查看本月同步到云端的真实使用情况。"
+        else "登录后可查看云端用量；当前仅展示本机记录。")
         Spacer(Modifier.height(18.dp))
         Pill(dashboard?.let {
-            "${it.planName} · ${if (it.planPurchasable) "可购买" else "暂未开放购买"}"
-        } ?: "演示数值 · 不会自动扣费", highlighted = true)
-        Spacer(Modifier.height(20.dp))
-        UsageCard("实时识别", "剩余 45 分钟", 0.75f,
-            "本期演示额度 60 分钟 · 已用 15 分钟")
-        Spacer(Modifier.height(12.dp))
-        UsageCard("云端播报", "剩余 8000 字符", 0.8f,
-            "当前应用优先使用设备语音引擎，演示额度不会真实扣除")
-        Spacer(Modifier.height(12.dp))
-        UsageCard("AI 功能", "剩余 20 次", 0.67f,
-            "表达建议与摘要目前仅提供本地界面预览")
+            "${it.planName} · ${if (it.purchasable) "可购买" else "不会自动扣费"}"
+        } ?: if (loggedIn) "正在读取账号用量" else "本机模式 · 不产生服务端费用",
+            highlighted = true)
+        if (dashboard != null) {
+            Spacer(Modifier.height(10.dp))
+            Text("${dashboard.periodStart} 至 ${dashboard.periodEnd}",
+                color = secondary, fontSize = 12.sp)
+        }
+        if (loading && dashboard == null) {
+            Spacer(Modifier.height(32.dp))
+            CircularProgressIndicator(
+                color = teal,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+        } else if (error.isNotBlank() && dashboard == null) {
+            Spacer(Modifier.height(20.dp))
+            Surface(color = white, shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp)) {
+                    Text("暂时无法获取用量", color = ink, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    Text(error, color = secondary, fontSize = 12.sp)
+                    TextButton(onClick = onRetry, enabled = !loading) {
+                        Text("重新加载", color = teal)
+                    }
+                }
+            }
+        } else if (dashboard != null) {
+            dashboard.metrics.forEach { metric ->
+                Spacer(Modifier.height(12.dp))
+                UsageCard(
+                    metric.name,
+                    "剩余 ${formatUsageValue(metric.code, metric.remaining, metric.unit)}",
+                    metric.progress,
+                    "已用 ${formatUsageValue(metric.code, metric.used, metric.unit)} / " +
+                        "${formatUsageValue(metric.code, metric.limit, metric.unit)} · " +
+                        metric.description
+                )
+            }
+        } else {
+            Spacer(Modifier.height(20.dp))
+            UsageCard(
+                "本机会话",
+                "$savedCount 段",
+                0f,
+                "本机记录不占用云端额度；登录并同步后才会计入账号统计"
+            )
+        }
         Spacer(Modifier.height(18.dp))
         Surface(color = white, shape = RoundedCornerShape(18.dp),
             border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
-                Text(if (dashboard == null) "本机数据" else "账号数据",
+                Text(if (dashboard == null) "本机数据" else "本月账号数据",
                     color = ink, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(7.dp))
                 Text(dashboard?.let {
-                    "${it.conversationCount} 段会话 · ${it.messageCount} 条文字 · " +
-                        "${it.totalDurationSeconds / 60} 分钟"
+                    "${it.conversationCount} 段会话 · ${it.messageCount} 条消息 · " +
+                        "${it.textCharacterCount} 个字符 · ${it.totalDurationSeconds / 60} 分钟"
                 } ?: "已保存 $savedCount 段会话", color = secondary, fontSize = 13.sp)
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text("以上额度均为原型演示，不代表正式套餐。真实计费、购买和服务端用量将在后端接入后确定。",
+        Text("当前为 V1 内测额度，不提供购买，也不会自动扣费。统计仅包含已同步到听见服务端的数据。",
             color = secondary, fontSize = 12.sp, lineHeight = 19.sp)
         Spacer(Modifier.height(30.dp))
     }
 }
+
+private fun formatUsageValue(code: String, value: Long, unit: String): String =
+    if (code == "CAPTION_SECONDS") {
+        if (value >= 60) "${value / 60} 分钟" else "$value 秒"
+    } else {
+        "$value $unit"
+    }
 
 @Composable
 internal fun UsageCard(title: String, value: String, progress: Float, note: String) {

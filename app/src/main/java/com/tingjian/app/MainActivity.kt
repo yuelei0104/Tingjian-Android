@@ -54,6 +54,7 @@ import com.tingjian.app.network.UserPreferenceUpdateRequest
 import com.tingjian.app.data.ApiResult
 import com.tingjian.app.data.resumeIndexFor
 import com.tingjian.app.data.toDashboard
+import com.tingjian.app.data.toUsageDashboard
 import com.tingjian.app.data.toConversation
 import org.json.JSONArray
 import org.json.JSONObject
@@ -125,6 +126,9 @@ private fun TingjianApp() {
     var homeDashboard by remember { mutableStateOf<HomeDashboard?>(null) }
     var homeRefreshing by remember { mutableStateOf(false) }
     var homeError by remember { mutableStateOf("") }
+    var usageDashboard by remember { mutableStateOf<UsageDashboard?>(null) }
+    var usageLoading by remember { mutableStateOf(false) }
+    var usageError by remember { mutableStateOf("") }
     var historyQuery by remember { mutableStateOf("") }
     var historyPage by remember { mutableIntStateOf(0) }
     var historyTotal by remember { mutableLongStateOf(0L) }
@@ -195,6 +199,17 @@ private fun TingjianApp() {
             }
         }
         homeRefreshing = false
+    }
+
+    suspend fun reloadUsage() {
+        if (!demoLoggedIn || usageLoading) return
+        usageLoading = true
+        usageError = ""
+        when (val result = repository.usage()) {
+            is ApiResult.Success -> usageDashboard = result.value.toUsageDashboard()
+            is ApiResult.Error -> usageError = result.message
+        }
+        usageLoading = false
     }
 
     fun saveDisplayPreferences() {
@@ -662,6 +677,9 @@ private fun TingjianApp() {
             homeDashboard = null
             homeError = ""
             homeRefreshing = false
+            usageDashboard = null
+            usageError = ""
+            usageLoading = false
             knownGlossaryIds = emptySet()
             knownQuickPhraseIds = emptySet()
             preferenceSyncRunning = false
@@ -701,6 +719,9 @@ private fun TingjianApp() {
             syncPersonalization()
         }
     }
+    LaunchedEffect(showUsage, demoLoggedIn) {
+        if (showUsage && demoLoggedIn) reloadUsage()
+    }
     LaunchedEffect(syncNotice) {
         if (syncNotice.isNotBlank()) {
             snackbarHostState.showSnackbar(syncNotice)
@@ -734,8 +755,15 @@ private fun TingjianApp() {
         Box(Modifier.fillMaxSize().padding(insets)) {
             val record = selected
             if (showUsage) {
-                UsageScreen(savedCount = savedRecords.size, dashboard = homeDashboard,
-                    onBack = { showUsage = false })
+                UsageScreen(
+                    savedCount = savedRecords.size,
+                    dashboard = usageDashboard,
+                    loggedIn = demoLoggedIn,
+                    loading = usageLoading,
+                    error = usageError,
+                    onRetry = { scope.launch { reloadUsage() } },
+                    onBack = { showUsage = false }
+                )
             } else if (showLogin) {
                 DemoLoginScreen(onBack = { showLogin = false }, onLogin = {
                     demoLoggedIn = true

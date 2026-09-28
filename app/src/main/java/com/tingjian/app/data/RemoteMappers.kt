@@ -2,9 +2,12 @@ package com.tingjian.app.data
 
 import com.tingjian.app.Conversation
 import com.tingjian.app.HomeDashboard
+import com.tingjian.app.UsageDashboard
+import com.tingjian.app.UsageMetric
 import com.tingjian.app.network.HistoryItemResponse
 import com.tingjian.app.network.HomeResponse
 import com.tingjian.app.network.SessionDetailResponse
+import com.tingjian.app.network.UsageResponse
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -18,6 +21,30 @@ internal fun HomeResponse.toDashboard(): HomeDashboard = HomeDashboard(
     planName = plan.name,
     planDescription = plan.description,
     planPurchasable = plan.purchasable
+)
+
+internal fun UsageResponse.toDashboard(): UsageDashboard = UsageDashboard(
+    planName = planName,
+    planDescription = planDescription,
+    purchasable = purchasable,
+    periodStart = periodStart,
+    periodEnd = periodEnd,
+    conversationCount = overview.conversationCount,
+    messageCount = overview.messageCount,
+    textCharacterCount = overview.textCharacterCount,
+    totalDurationSeconds = overview.totalDurationSeconds,
+    metrics = metrics.map {
+        UsageMetric(
+            code = it.code,
+            name = it.name,
+            unit = it.unit,
+            used = it.used,
+            limit = it.limit,
+            remaining = it.remaining,
+            progress = it.progress.toFloat().coerceIn(0f, 1f),
+            description = it.description
+        )
+    }
 )
 
 internal fun HistoryItemResponse.toConversation(): Conversation = Conversation(

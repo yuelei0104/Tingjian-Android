@@ -100,6 +100,30 @@ internal data class HomeDashboard(
     val planPurchasable: Boolean
 )
 
+internal data class UsageMetric(
+    val code: String,
+    val name: String,
+    val unit: String,
+    val used: Long,
+    val limit: Long,
+    val remaining: Long,
+    val progress: Float,
+    val description: String
+)
+
+internal data class UsageDashboard(
+    val planName: String,
+    val planDescription: String,
+    val purchasable: Boolean,
+    val periodStart: String,
+    val periodEnd: String,
+    val conversationCount: Long,
+    val messageCount: Long,
+    val textCharacterCount: Long,
+    val totalDurationSeconds: Long,
+    val metrics: List<UsageMetric>
+)
+
 internal val examples = listOf(
     Conversation("和朋友聊聊周末", "今天 14:32", "我们周六去公园走走，怎么样？", "12 分钟",
         listOf("对方" to "我们周六去公园走走，怎么样？", "我" to "好呀，下午见！"),

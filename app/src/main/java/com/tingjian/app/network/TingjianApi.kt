@@ -43,6 +43,9 @@ interface TingjianApi {
     @GET("api/v1/home")
     suspend fun home(@Query("recentSize") recentSize: Int = 3): ApiEnvelope<HomeResponse>
 
+    @GET("api/v1/usage")
+    suspend fun usage(): ApiEnvelope<UsageResponse>
+
     @POST("api/v1/sessions")
     suspend fun createSession(@Body request: SessionCreateRequest): ApiEnvelope<SessionResponse>
 

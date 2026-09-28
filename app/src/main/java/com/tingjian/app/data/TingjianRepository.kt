@@ -28,6 +28,7 @@ import com.tingjian.app.network.TingjianApi
 import com.tingjian.app.network.TokenStore
 import com.tingjian.app.network.UserPreferenceResponse
 import com.tingjian.app.network.UserPreferenceUpdateRequest
+import com.tingjian.app.network.UsageResponse
 import retrofit2.HttpException
 import java.io.IOException
 
@@ -98,6 +99,8 @@ class TingjianRepository internal constructor(
 
     suspend fun home(recentSize: Int = 3): ApiResult<HomeResponse> =
         call { api.home(recentSize) }
+
+    suspend fun usage(): ApiResult<UsageResponse> = call { api.usage() }
 
     suspend fun createSession(title: String): ApiResult<SessionResponse> =
         call { api.createSession(SessionCreateRequest(title)) }
