@@ -23,7 +23,7 @@ internal fun HomeResponse.toDashboard(): HomeDashboard = HomeDashboard(
     planPurchasable = plan.purchasable
 )
 
-internal fun UsageResponse.toDashboard(): UsageDashboard = UsageDashboard(
+internal fun UsageResponse.toUsageDashboard(): UsageDashboard = UsageDashboard(
     planName = planName,
     planDescription = planDescription,
     purchasable = purchasable,

@@ -58,7 +58,7 @@ class RemoteMappersTest {
             )
         )
 
-        val dashboard = response.toDashboard()
+        val dashboard = response.toUsageDashboard()
 
         assertEquals(4L, dashboard.conversationCount)
         assertEquals(600L, dashboard.textCharacterCount)
