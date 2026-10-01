@@ -25,6 +25,7 @@ import com.tingjian.app.network.SessionCreateRequest
 import com.tingjian.app.network.SessionDetailResponse
 import com.tingjian.app.network.SessionMessageRequest
 import com.tingjian.app.network.SessionMessageResponse
+import com.tingjian.app.network.SessionMessagePageResponse
 import com.tingjian.app.network.SessionRenameRequest
 import com.tingjian.app.network.SessionResponse
 import com.tingjian.app.network.TingjianApi
@@ -125,10 +126,20 @@ class TingjianRepository internal constructor(
 
     suspend fun addMessage(
         sessionId: String,
+        clientMessageId: String,
         speaker: String,
         content: String
     ): ApiResult<SessionMessageResponse> =
-        call { api.addMessage(sessionId, SessionMessageRequest(speaker, content)) }
+        call { api.addMessage(
+            sessionId, SessionMessageRequest(clientMessageId, speaker, content)
+        ) }
+
+    suspend fun sessionMessages(
+        sessionId: String,
+        afterSequence: Long = 0,
+        size: Int = 50
+    ): ApiResult<SessionMessagePageResponse> =
+        call { api.sessionMessages(sessionId, afterSequence, size) }
 
     suspend fun endSession(id: String): ApiResult<SessionResponse> =
         call { api.endSession(id) }

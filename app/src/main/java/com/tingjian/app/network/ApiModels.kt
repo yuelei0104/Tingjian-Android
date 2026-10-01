@@ -76,7 +76,11 @@ data class UsageResponse(
 
 data class SessionCreateRequest(val title: String)
 data class SessionRenameRequest(val title: String)
-data class SessionMessageRequest(val speaker: String, val content: String)
+data class SessionMessageRequest(
+    val clientMessageId: String,
+    val speaker: String,
+    val content: String
+)
 data class SessionResponse(
     val id: String,
     val title: String,
@@ -86,9 +90,33 @@ data class SessionResponse(
 )
 data class SessionMessageResponse(
     val id: String,
+    val clientMessageId: String,
+    val sequence: Long,
     val speaker: String,
     val content: String,
     val createdAt: String
+)
+data class SessionMessagePageResponse(
+    val items: List<SessionMessageResponse>,
+    val nextAfterSequence: Long,
+    val hasNext: Boolean
+)
+
+data class RealtimeMessageRequest(
+    val type: String = "MESSAGE",
+    val sessionId: String,
+    val clientMessageId: String,
+    val speaker: String,
+    val content: String
+)
+
+data class RealtimeMessageEvent(
+    val type: String,
+    val sessionId: String?,
+    val clientMessageId: String?,
+    val message: SessionMessageResponse?,
+    val code: String,
+    val detail: String
 )
 data class SessionDetailResponse(
     val session: SessionResponse,

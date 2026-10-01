@@ -9,7 +9,8 @@ internal class AuthHeaderInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val token = tokenProvider.accessToken()
-        if (token.isNullOrBlank() || request.url.encodedPath.startsWith("/api/auth/")) {
+        if (token.isNullOrBlank() || request.url.encodedPath.startsWith("/api/v1/auth/") ||
+            request.url.encodedPath.startsWith("/api/auth/")) {
             return chain.proceed(request)
         }
         return chain.proceed(

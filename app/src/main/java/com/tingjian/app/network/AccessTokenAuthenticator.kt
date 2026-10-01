@@ -12,7 +12,9 @@ internal class AccessTokenAuthenticator(
     private val refreshLock = Any()
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        if (responseCount(response) >= 2 || response.request.url.encodedPath.startsWith("/api/auth/")) {
+        val path = response.request.url.encodedPath
+        if (responseCount(response) >= 2 || path.startsWith("/api/v1/auth/") ||
+            path.startsWith("/api/auth/")) {
             return null
         }
 

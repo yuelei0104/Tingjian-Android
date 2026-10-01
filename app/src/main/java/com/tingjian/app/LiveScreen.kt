@@ -66,7 +66,11 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     language: String, onLanguageChange: (String) -> Unit, voiceMode: String,
     voiceStyle: String, ttsSpeed: Float, keywords: List<String>,
     keywordVibration: Boolean, keywordHighlight: Boolean,
-    quickPhrases: List<QuickPhrase>, sessionStartedAt: Long, onFinish: () -> Unit) {
+    quickPhrases: List<QuickPhrase>, sessionStartedAt: Long,
+    cloudSyncState: String, pendingMessageCount: Int,
+    onRetryCloudSync: () -> Unit,
+    onLineAdded: (ChatLine, Int) -> Unit,
+    onFinish: () -> Unit) {
     val context = LocalContext.current
     var reply by remember { mutableStateOf("") }
     var confirmFinish by remember { mutableStateOf(false) }
@@ -316,7 +320,9 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     val recognized = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull().orEmpty()
                     if (recognized.isNotBlank()) {
-                        lines.add(ChatLine(recognized, false))
+                        val line = ChatLine(recognized, false)
+                        lines.add(line)
+                        onLineAdded(line, lines.lastIndex)
                         connectionState = "已连接"
                         val hit = keywords.firstOrNull { recognized.contains(it, ignoreCase = true) }
                         if (hit != null) {
@@ -558,6 +564,17 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     Text(if (autoScroll) "跟随字幕" else "停止跟随", color = teal, fontSize = 12.sp)
                 }
             }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("云端同步：$cloudSyncState" +
+                    if (pendingMessageCount > 0) " · 待发送 $pendingMessageCount 条" else "",
+                    color = if (pendingMessageCount > 0) secondary else teal,
+                    fontSize = 12.sp, modifier = Modifier.weight(1f))
+                if (cloudSyncState != "已连接" || pendingMessageCount > 0) {
+                    TextButton(onClick = onRetryCloudSync) {
+                        Text("重试同步", color = teal, fontSize = 11.sp)
+                    }
+                }
+            }
         }
         HorizontalDivider(color = divider)
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)
@@ -634,7 +651,9 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     } else {
                         val message = reply.trim()
                         if (message.isNotEmpty()) {
-                            lines.add(ChatLine(message, true))
+                            val line = ChatLine(message, true)
+                            lines.add(line)
+                            onLineAdded(line, lines.lastIndex)
                             playText(message)
                         }
                         reply = ""

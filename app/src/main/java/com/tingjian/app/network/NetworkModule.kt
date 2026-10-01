@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object NetworkModule {
     @Volatile
@@ -16,6 +17,9 @@ object NetworkModule {
         private set
 
     lateinit var repository: TingjianRepository
+        private set
+
+    lateinit var realtimeClient: RealtimeMessageClient
         private set
 
     fun initialize(context: Context) {
@@ -36,6 +40,7 @@ object NetworkModule {
                 .create(TokenRefreshApi::class.java)
 
             val client = OkHttpClient.Builder()
+                .pingInterval(20, TimeUnit.SECONDS)
                 .addInterceptor(AuthHeaderInterceptor(tokenStore))
                 .authenticator(AccessTokenAuthenticator(tokenStore, refreshApi))
                 .apply {
@@ -56,6 +61,7 @@ object NetworkModule {
                 .create(TingjianApi::class.java)
 
             repository = TingjianRepository(api, tokenStore)
+            realtimeClient = RealtimeMessageClient(client, baseUrl, tokenStore)
             initialized = true
         }
     }

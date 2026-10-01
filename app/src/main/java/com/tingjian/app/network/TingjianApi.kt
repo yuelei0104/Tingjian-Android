@@ -76,6 +76,13 @@ interface TingjianApi {
         @Body request: SessionMessageRequest
     ): ApiEnvelope<SessionMessageResponse>
 
+    @GET("api/v1/sessions/{id}/messages")
+    suspend fun sessionMessages(
+        @Path("id") id: String,
+        @Query("afterSequence") afterSequence: Long = 0,
+        @Query("size") size: Int = 50
+    ): ApiEnvelope<SessionMessagePageResponse>
+
     @POST("api/v1/sessions/{id}/end")
     suspend fun endSession(@Path("id") id: String): ApiEnvelope<SessionResponse>
 

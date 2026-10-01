@@ -64,6 +64,9 @@ internal data class Conversation(
 
 internal data class ChatLine(val content: String, val fromMe: Boolean)
 
+internal fun messageClientId(conversationId: Long, index: Int): String =
+    "android-$conversationId-${index + 1}"
+
 internal data class GlossaryTerm(
     val name: String,
     val alias: String = "",

@@ -53,11 +53,16 @@ import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.network.UserPreferenceUpdateRequest
 import com.tingjian.app.network.AccountSessionResponse
 import com.tingjian.app.data.ApiResult
+import com.tingjian.app.data.PendingMessageStore
+import com.tingjian.app.data.PendingRealtimeMessage
 import com.tingjian.app.data.resumeIndexFor
 import com.tingjian.app.data.toDashboard
 import com.tingjian.app.data.toUsageDashboard
 import com.tingjian.app.data.toConversation
 import com.tingjian.app.data.toPrettyJson
+import com.tingjian.app.network.RealtimeMessageClient
+import com.tingjian.app.network.RealtimeMessageEvent
+import com.tingjian.app.network.RealtimeMessageRequest
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -81,6 +86,8 @@ private fun TingjianApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val repository = remember { NetworkModule.repository }
+    val realtimeClient = remember { NetworkModule.realtimeClient }
+    val pendingMessageStore = remember { PendingMessageStore(context) }
     val preferences = remember { context.getSharedPreferences("tingjian_display", android.content.Context.MODE_PRIVATE) }
     var entered by remember { mutableStateOf(preferences.getBoolean("welcome_completed", false)) }
     var tab by remember { mutableIntStateOf(0) }
@@ -154,6 +161,13 @@ private fun TingjianApp() {
     var revokingSessionId by remember { mutableStateOf<String?>(null) }
     var conversationSyncRunning by remember { mutableStateOf(false) }
     var networkGeneration by remember { mutableIntStateOf(0) }
+    var realtimeState by remember {
+        mutableStateOf(RealtimeMessageClient.State.DISCONNECTED)
+    }
+    var realtimeFlushVersion by remember { mutableIntStateOf(0) }
+    var pendingMessageCount by remember { mutableIntStateOf(0) }
+    var activeLastSequence by remember { mutableLongStateOf(0L) }
+    val currentActiveSessionId by rememberUpdatedState(activeSessionId)
     val snackbarHostState = remember { SnackbarHostState() }
     val pendingServerIds = savedRecords.filter { it.syncPending }
         .mapNotNull { it.serverId }.toSet()
@@ -167,6 +181,57 @@ private fun TingjianApp() {
     val allRecords = visibleSavedRecords + examples
     val pendingSyncCount = savedRecords.count { it.syncPending && it.transcript.isNotEmpty() }
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+
+    fun refreshPendingMessageCount() {
+        pendingMessageCount = pendingMessageStore.all(repository.email().orEmpty()).size
+    }
+
+    fun flushRealtimeOutbox() {
+        if (!demoLoggedIn || realtimeState != RealtimeMessageClient.State.CONNECTED) return
+        pendingMessageStore.all(repository.email().orEmpty()).forEach { pending ->
+            val accepted = realtimeClient.send(RealtimeMessageRequest(
+                sessionId = pending.sessionId,
+                clientMessageId = pending.clientMessageId,
+                speaker = pending.speaker,
+                content = pending.content
+            ))
+            if (!accepted) return
+        }
+    }
+
+    fun clearRealtimeOutbox(ownerEmail: String = repository.email().orEmpty()) {
+        if (ownerEmail.isNotBlank()) pendingMessageStore.clear(ownerEmail)
+        refreshPendingMessageCount()
+    }
+
+    suspend fun recoverRealtimeSession() {
+        val sessionId = activeSessionId ?: return
+        var cursor = activeLastSequence
+        do {
+            when (val result = repository.sessionMessages(sessionId, cursor, 100)) {
+                is ApiResult.Success -> {
+                    val localClientIds = liveLines.indices
+                        .map { messageClientId(sessionStartedAt, it) }.toSet()
+                    result.value.items.forEach { message ->
+                        if (message.sequence > activeLastSequence &&
+                            message.clientMessageId !in localClientIds) {
+                            liveLines.add(ChatLine(
+                                content = message.content,
+                                fromMe = message.speaker == "SELF"
+                            ))
+                        }
+                        activeLastSequence = maxOf(activeLastSequence, message.sequence)
+                    }
+                    cursor = result.value.nextAfterSequence
+                    if (!result.value.hasNext) return
+                }
+                is ApiResult.Error -> {
+                    syncNotice = "实时会话恢复失败：${result.message}"
+                    return
+                }
+            }
+        } while (true)
+    }
 
     suspend fun reloadRemoteHistory(keyword: String = "", append: Boolean = false) {
         if (!demoLoggedIn) return
@@ -369,6 +434,8 @@ private fun TingjianApp() {
                         updateLocalConversation(local.id) {
                             it.copy(serverId = serverId, syncPending = false)
                         }
+                        pendingMessageStore.removeSession(serverId)
+                        refreshPendingMessageCount()
                         return ApiResult.Success(Unit)
                     }
                 }
@@ -393,9 +460,11 @@ private fun TingjianApp() {
 
         val actualServerId = serverId
             ?: return ApiResult.Error("无法创建云端会话")
-        for ((speaker, content) in local.transcript.drop(resumeIndex)) {
+        for ((offset, line) in local.transcript.drop(resumeIndex).withIndex()) {
+            val (speaker, content) = line
             when (val uploaded = repository.addMessage(
                 actualServerId,
+                messageClientId(local.id, resumeIndex + offset),
                 if (speaker == "我") "SELF" else "OTHER",
                 content
             )) {
@@ -404,8 +473,12 @@ private fun TingjianApp() {
             }
         }
         when (val ended = repository.endSession(actualServerId)) {
-            is ApiResult.Success -> updateLocalConversation(local.id) {
-                it.copy(serverId = actualServerId, syncPending = false)
+            is ApiResult.Success -> {
+                updateLocalConversation(local.id) {
+                    it.copy(serverId = actualServerId, syncPending = false)
+                }
+                pendingMessageStore.removeSession(actualServerId)
+                refreshPendingMessageCount()
             }
             is ApiResult.Error -> return ended
         }
@@ -585,6 +658,7 @@ private fun TingjianApp() {
         scope.launch {
             when (val result = repository.createSession(title)) {
                 is ApiResult.Success -> {
+                    activeLastSequence = 0L
                     activeSessionId = result.value.id
                     syncNotice = ""
                 }
@@ -673,6 +747,7 @@ private fun TingjianApp() {
 
     LaunchedEffect(demoLoggedIn) {
         if (demoLoggedIn) {
+            refreshPendingMessageCount()
             repository.accountProfile()
             reloadPreferences()
             reloadHome()
@@ -708,6 +783,67 @@ private fun TingjianApp() {
             knownQuickPhraseIds = emptySet()
             preferenceSyncRunning = false
             preferenceSyncError = ""
+            realtimeState = RealtimeMessageClient.State.DISCONNECTED
+            pendingMessageCount = 0
+        }
+    }
+    DisposableEffect(demoLoggedIn, repository.email()) {
+        if (demoLoggedIn) {
+            realtimeClient.connect(object : RealtimeMessageClient.Listener {
+                override fun onStateChanged(state: RealtimeMessageClient.State) {
+                    realtimeState = state
+                    if (state == RealtimeMessageClient.State.CONNECTED) {
+                        realtimeFlushVersion++
+                    }
+                }
+
+                override fun onEvent(event: RealtimeMessageEvent) {
+                    when (event.type) {
+                        "ACK" -> event.message?.clientMessageId?.let { clientId ->
+                            pendingMessageStore.remove(repository.email().orEmpty(), clientId)
+                            refreshPendingMessageCount()
+                        }
+                        "MESSAGE" -> {
+                            val message = event.message
+                            if (event.sessionId == currentActiveSessionId && message != null) {
+                                when {
+                                    message.sequence == activeLastSequence + 1L -> {
+                                        liveLines.add(ChatLine(
+                                            content = message.content,
+                                            fromMe = message.speaker == "SELF"
+                                        ))
+                                        activeLastSequence = message.sequence
+                                    }
+                                    message.sequence > activeLastSequence + 1L ->
+                                        scope.launch { recoverRealtimeSession() }
+                                }
+                            }
+                        }
+                        "ERROR" -> if (event.detail.isNotBlank()) {
+                            when (event.code) {
+                                "SESSION_ENDED", "SESSION_NOT_FOUND" ->
+                                    event.sessionId?.let(pendingMessageStore::removeSession)
+                                "IDEMPOTENCY_CONFLICT" -> event.clientMessageId?.let { clientId ->
+                                    pendingMessageStore.remove(
+                                        repository.email().orEmpty(), clientId
+                                    )
+                                }
+                            }
+                            refreshPendingMessageCount()
+                            syncNotice = event.detail
+                        }
+                    }
+                }
+            })
+        }
+        onDispose { realtimeClient.disconnect() }
+    }
+    LaunchedEffect(realtimeFlushVersion, networkGeneration, activeSessionId) {
+        if (realtimeFlushVersion > 0 || networkGeneration > 0) {
+            if (realtimeState == RealtimeMessageClient.State.CONNECTED) {
+                recoverRealtimeSession()
+            }
+            flushRealtimeOutbox()
         }
     }
     DisposableEffect(Unit) {
@@ -723,6 +859,9 @@ private fun TingjianApp() {
     }
     LaunchedEffect(networkGeneration) {
         if (networkGeneration > 0 && demoLoggedIn) {
+            if (realtimeState == RealtimeMessageClient.State.DISCONNECTED) {
+                realtimeClient.reconnect()
+            }
             if (pendingSyncCount > 0) syncPendingConversations()
             val pendingOwner = preferences.getString("preference_sync_owner", null)
             if (preferences.getBoolean("preference_sync_pending", false) &&
@@ -928,21 +1067,62 @@ private fun TingjianApp() {
                     keywordVibration = keywordVibration,
                     keywordHighlight = keywordHighlight,
                     quickPhrases = quickPhrases.filter { it.enabled },
-                    sessionStartedAt = sessionStartedAt, onFinish = {
+                    sessionStartedAt = sessionStartedAt,
+                    cloudSyncState = when {
+                        !demoLoggedIn -> "仅本机"
+                        realtimeState == RealtimeMessageClient.State.CONNECTED -> "已连接"
+                        realtimeState == RealtimeMessageClient.State.CONNECTING -> "连接中"
+                        realtimeState == RealtimeMessageClient.State.RECONNECTING -> "重连中"
+                        else -> "离线排队"
+                    },
+                    pendingMessageCount = pendingMessageCount,
+                    onRetryCloudSync = {
+                        if (demoLoggedIn) {
+                            realtimeClient.reconnect()
+                            scope.launch { syncPendingConversations() }
+                        }
+                    },
+                    onLineAdded = { line, index ->
+                        val localConversationId = sessionStartedAt
+                        if (demoLoggedIn) scope.launch {
+                            while (remoteSessionCreating) delay(50)
+                            val serverId = activeSessionId ?: return@launch
+                            val ownerEmail = repository.email().orEmpty()
+                            if (ownerEmail.isBlank()) return@launch
+                            val pending = PendingRealtimeMessage(
+                                ownerEmail = ownerEmail,
+                                sessionId = serverId,
+                                clientMessageId = messageClientId(localConversationId, index),
+                                speaker = if (line.fromMe) "SELF" else "OTHER",
+                                content = line.content
+                            )
+                            pendingMessageStore.enqueue(pending)
+                            refreshPendingMessageCount()
+                            if (realtimeState == RealtimeMessageClient.State.CONNECTED) {
+                                realtimeClient.send(RealtimeMessageRequest(
+                                    sessionId = pending.sessionId,
+                                    clientMessageId = pending.clientMessageId,
+                                    speaker = pending.speaker,
+                                    content = pending.content
+                                ))
+                            }
+                        }
+                },
+                    onFinish = {
                     val now = System.currentTimeMillis()
+                    val completedStart = if (sessionStartedAt == 0L) now else sessionStartedAt
                     val completedLines = liveLines.toList()
                     val completedSessionId = activeSessionId
                     if (liveLines.isNotEmpty()) {
-                        val start = if (sessionStartedAt == 0L) now else sessionStartedAt
                         val record = Conversation(
                             title = if (scene == "日常") "面对面会话" else "$scene · 会话",
                             time = SimpleDateFormat("M月d日 HH:mm", Locale.CHINA)
-                                .format(Date(start)),
+                                .format(Date(completedStart)),
                             preview = liveLines.last().content,
-                            duration = "${(now - start).coerceAtLeast(0L) / 60000L + 1} 分钟",
+                            duration = "${(now - completedStart).coerceAtLeast(0L) / 60000L + 1} 分钟",
                             transcript = liveLines.map { (text, fromMe) ->
                                 (if (fromMe) "我" else "对方") to text
-                            }, id = now, scene = scene, serverId = completedSessionId,
+                            }, id = completedStart, scene = scene, serverId = completedSessionId,
                             syncPending = true
                         )
                         savedRecords.add(0, record)
@@ -955,11 +1135,12 @@ private fun TingjianApp() {
                             while (remoteSessionCreating) delay(50)
                             val preparedServerId = completedSessionId ?: activeSessionId
                             if (preparedServerId != null) {
-                                updateLocalConversation(now) {
+                                updateLocalConversation(completedStart) {
                                     it.copy(serverId = preparedServerId, syncPending = true)
                                 }
                             }
                             activeSessionId = null
+                            activeLastSequence = 0L
                             remoteSessionCreating = false
                             syncPendingConversations()
                         }
@@ -968,6 +1149,7 @@ private fun TingjianApp() {
                     sessionStartedAt = 0L
                     if (!demoLoggedIn || completedLines.isEmpty()) {
                         activeSessionId = null
+                        activeLastSequence = 0L
                         remoteSessionCreating = false
                     }
                     scene = "日常"
@@ -1011,7 +1193,9 @@ private fun TingjianApp() {
                     onLogout = {
                         if (!dataActionRunning) scope.launch {
                             dataActionRunning = true
+                            val ownerEmail = repository.email().orEmpty()
                             val result = repository.logout()
+                            clearRealtimeOutbox(ownerEmail)
                             dataActionRunning = false
                             demoLoggedIn = false
                             if (result is ApiResult.Error) {
@@ -1032,10 +1216,12 @@ private fun TingjianApp() {
                     onChangePassword = { currentPassword, newPassword ->
                         if (!dataActionRunning) scope.launch {
                             dataActionRunning = true
+                            val ownerEmail = repository.email().orEmpty()
                             when (val result = repository.changeAccountPassword(
                                 currentPassword, newPassword
                             )) {
                                 is ApiResult.Success -> {
+                                    clearRealtimeOutbox(ownerEmail)
                                     demoLoggedIn = false
                                     syncNotice = "密码已修改，请使用新密码重新登录"
                                 }
@@ -1052,6 +1238,7 @@ private fun TingjianApp() {
                                     clearLocalHistory()
                                     clearLocalPersonalization()
                                     resetLocalPreferences()
+                                    clearRealtimeOutbox()
                                     liveLines.clear()
                                     sessionStartedAt = 0L
                                     repository.logout()
@@ -1066,14 +1253,17 @@ private fun TingjianApp() {
                     onDeleteAccount = { password ->
                         if (!dataActionRunning) scope.launch {
                             dataActionRunning = true
+                            val ownerEmail = repository.email().orEmpty()
                             when (val result = repository.deleteAccount(password)) {
                                 is ApiResult.Success -> {
                                     clearLocalHistory()
                                     clearLocalPersonalization()
                                     resetLocalPreferences()
+                                    clearRealtimeOutbox(ownerEmail)
                                     liveLines.clear()
                                     sessionStartedAt = 0L
                                     activeSessionId = null
+                                    activeLastSequence = 0L
                                     remoteSessionCreating = false
                                     demoLoggedIn = false
                                     syncNotice = "账号和全部关联数据已永久删除"

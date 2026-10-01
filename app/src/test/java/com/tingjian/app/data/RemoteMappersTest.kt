@@ -109,7 +109,8 @@ class RemoteMappersTest {
         session = SessionResponse("session-1", "测试会话", "ACTIVE",
             "2026-09-24T08:05:00", null),
         messages = messages.mapIndexed { index, (speaker, content) ->
-            SessionMessageResponse("message-$index", speaker, content,
+            SessionMessageResponse("message-$index", "client-$index", index + 1L,
+                speaker, content,
                 "2026-09-24T08:05:0$index")
         }
     )
