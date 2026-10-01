@@ -112,6 +112,20 @@ data class HistoryListResponse(
     val hasNext: Boolean
 )
 
+data class HistorySummaryResponse(
+    val sessionId: String,
+    val summary: String,
+    val messageCount: Int,
+    val generatedBy: String
+)
+
+data class AccountSessionResponse(
+    val id: String,
+    val createdAt: String,
+    val lastActiveAt: String,
+    val expiresAt: String
+)
+
 data class KeywordUpsertRequest(
     val phrase: String,
     val vibrationEnabled: Boolean,
@@ -170,6 +184,37 @@ data class PrivacyDeleteResponse(
     val keywords: Int,
     val glossaryTerms: Int,
     val quickPhrases: Int
+)
+
+data class AccountExportResponse(
+    val email: String,
+    val displayName: String,
+    val createdAt: String
+)
+
+data class MessageExportResponse(
+    val speaker: String,
+    val content: String,
+    val createdAt: String
+)
+
+data class ConversationExportResponse(
+    val id: String,
+    val title: String,
+    val status: String,
+    val startedAt: String,
+    val endedAt: String?,
+    val messages: List<MessageExportResponse>
+)
+
+data class PrivacyExportResponse(
+    val exportedAt: String,
+    val account: AccountExportResponse,
+    val conversations: List<ConversationExportResponse>,
+    val keywords: List<KeywordResponse>,
+    val glossaryTerms: List<GlossaryResponse>,
+    val quickPhrases: List<QuickPhraseResponse>,
+    val preferences: UserPreferenceResponse
 )
 
 data class UserPreferenceResponse(

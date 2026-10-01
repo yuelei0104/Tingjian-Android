@@ -170,22 +170,17 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
     keywords: List<String>,
     loading: Boolean, loadError: String, onRetry: () -> Unit,
     actionRunning: Boolean, actionError: String,
+    summary: String, summaryLoading: Boolean, summaryError: String,
+    onSummarize: () -> Unit, onClearSummary: () -> Unit,
     onBack: () -> Unit,
     onRename: (String) -> Unit, onDelete: () -> Unit) {
     val context = LocalContext.current
     var confirmDelete by remember(record.id) { mutableStateOf(false) }
     var rename by remember(record.id) { mutableStateOf(false) }
     var newTitle by remember(record.id) { mutableStateOf(record.title) }
-    var summary by remember(record.id, record.transcript) { mutableStateOf("") }
-    var summaryState by remember(record.id, record.transcript) {
-        mutableStateOf(if (autoSummary && record.transcript.isNotEmpty())
-            "generating" else "empty")
-    }
-    LaunchedEffect(record.id, record.transcript, summaryState) {
-        if (summaryState == "generating") {
-            delay(700)
-            summary = localSummary(record)
-            summaryState = if (record.transcript.isEmpty()) "unavailable" else "done"
+    LaunchedEffect(record.id, record.transcript, autoSummary) {
+        if (autoSummary && record.transcript.isNotEmpty() && summary.isBlank()) {
+            onSummarize()
         }
     }
     if (rename) {
@@ -282,30 +277,32 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
             Column(Modifier.padding(17.dp)) {
                 Text("会话摘要", color = ink, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(7.dp))
-                Text(when (summaryState) {
-                    "generating" -> "正在生成摘要…"
-                    "failed" -> "摘要生成失败，原始转写不受影响。"
-                    "unavailable" -> "暂无可用摘要。"
-                    "done" -> summary
-                    else -> "还没有摘要。点击下方按钮可预览本地整理效果。"
-                }, color = if (summaryState == "done") ink else secondary,
+                Text(when {
+                    summaryLoading -> "正在生成摘要…"
+                    summaryError.isNotBlank() -> summaryError
+                    summary.isNotBlank() -> summary
+                    record.transcript.isEmpty() -> "暂无可用摘要。"
+                    else -> "还没有摘要。点击下方按钮开始整理。"
+                }, color = if (summary.isNotBlank()) ink else secondary,
                     fontSize = 13.sp, lineHeight = 20.sp)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { summaryState = "generating" },
-                        enabled = summaryState != "generating",
+                    TextButton(onClick = onSummarize,
+                        enabled = !summaryLoading && record.transcript.isNotEmpty(),
                         contentPadding = PaddingValues(0.dp)) {
-                        Text(if (summaryState == "done") "重新生成" else "生成演示摘要",
+                        Text(if (summary.isNotBlank()) "重新生成" else "生成摘要",
                             color = teal, fontSize = 13.sp)
                     }
-                    if (summaryState == "done") {
-                        TextButton(onClick = { summary = ""; summaryState = "empty" }) {
+                    if (summary.isNotBlank()) {
+                        TextButton(onClick = onClearSummary) {
                             Text("删除摘要", color = MaterialTheme.colorScheme.error,
                                 fontSize = 13.sp)
                         }
                     }
                 }
-                Text("AI 生成 · 当前为本地界面演示，不调用服务，也不会扣除额度。",
+                Text(if (record.serverId == null)
+                    "本机会话使用设备内的简要整理。"
+                else "由听见服务根据当前会话文字生成，不会修改原文。",
                     color = secondary, fontSize = 11.sp, lineHeight = 17.sp)
             }
         }

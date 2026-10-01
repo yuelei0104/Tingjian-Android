@@ -40,6 +40,12 @@ interface TingjianApi {
         @Body request: AccountPasswordChangeRequest
     ): ApiEnvelope<Unit>
 
+    @GET("api/v1/account/sessions")
+    suspend fun accountSessions(): ApiEnvelope<List<AccountSessionResponse>>
+
+    @DELETE("api/v1/account/sessions/{id}")
+    suspend fun revokeAccountSession(@Path("id") id: String): ApiEnvelope<Unit>
+
     @GET("api/v1/home")
     suspend fun home(@Query("recentSize") recentSize: Int = 3): ApiEnvelope<HomeResponse>
 
@@ -85,6 +91,9 @@ interface TingjianApi {
 
     @DELETE("api/v1/history/{id}")
     suspend fun deleteHistory(@Path("id") id: String): ApiEnvelope<Unit>
+
+    @POST("api/v1/history/{id}/summary")
+    suspend fun summarizeHistory(@Path("id") id: String): ApiEnvelope<HistorySummaryResponse>
 
     @GET("api/v1/keywords")
     suspend fun keywords(): ApiEnvelope<List<KeywordResponse>>
@@ -149,6 +158,9 @@ interface TingjianApi {
 
     @DELETE("api/v1/privacy/all-data")
     suspend fun clearAllData(): ApiEnvelope<PrivacyDeleteResponse>
+
+    @GET("api/v1/privacy/export")
+    suspend fun exportData(): ApiEnvelope<PrivacyExportResponse>
 }
 
 internal interface TokenRefreshApi {

@@ -4,16 +4,19 @@ import com.tingjian.app.network.ApiEnvelope
 import com.tingjian.app.network.AccountDeleteRequest
 import com.tingjian.app.network.AccountPasswordChangeRequest
 import com.tingjian.app.network.AccountProfileUpdateRequest
+import com.tingjian.app.network.AccountSessionResponse
 import com.tingjian.app.network.AuthTokenResponse
 import com.tingjian.app.network.AuthUserResponse
 import com.tingjian.app.network.GlossaryResponse
 import com.tingjian.app.network.GlossaryUpsertRequest
 import com.tingjian.app.network.HistoryListResponse
+import com.tingjian.app.network.HistorySummaryResponse
 import com.tingjian.app.network.HomeResponse
 import com.tingjian.app.network.KeywordResponse
 import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.LoginRequest
 import com.tingjian.app.network.PrivacyDeleteResponse
+import com.tingjian.app.network.PrivacyExportResponse
 import com.tingjian.app.network.QuickPhraseResponse
 import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.network.RefreshTokenRequest
@@ -97,6 +100,12 @@ class TingjianRepository internal constructor(
         return result
     }
 
+    suspend fun accountSessions(): ApiResult<List<AccountSessionResponse>> =
+        call { api.accountSessions() }
+
+    suspend fun revokeAccountSession(id: String): ApiResult<Unit> =
+        callEmpty { api.revokeAccountSession(id) }
+
     suspend fun home(recentSize: Int = 3): ApiResult<HomeResponse> =
         call { api.home(recentSize) }
 
@@ -135,6 +144,9 @@ class TingjianRepository internal constructor(
 
     suspend fun deleteHistory(id: String): ApiResult<Unit> =
         callEmpty { api.deleteHistory(id) }
+
+    suspend fun summarizeHistory(id: String): ApiResult<HistorySummaryResponse> =
+        call { api.summarizeHistory(id) }
 
     suspend fun keywords(): ApiResult<List<KeywordResponse>> = call { api.keywords() }
     suspend fun createKeyword(request: KeywordUpsertRequest): ApiResult<KeywordResponse> =
@@ -180,6 +192,8 @@ class TingjianRepository internal constructor(
         call { api.clearPersonalization() }
     suspend fun clearAllData(): ApiResult<PrivacyDeleteResponse> =
         call { api.clearAllData() }
+    suspend fun exportData(): ApiResult<PrivacyExportResponse> =
+        call { api.exportData() }
 
     private suspend fun callAndSaveTokens(
         block: suspend () -> ApiEnvelope<AuthTokenResponse>

@@ -305,7 +305,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     onUpdateProfile: (String) -> Unit,
     onChangePassword: (String, String) -> Unit,
     onClearAccountData: () -> Unit, onDeleteAccount: (String) -> Unit,
-    onUsage: () -> Unit, onClearHistory: () -> Unit,
+    onUsage: () -> Unit, onAccountSessions: () -> Unit, onExportData: () -> Unit,
+    onClearHistory: () -> Unit,
     onClearPersonalization: () -> Unit,
     onVoiceModeChange: (String) -> Unit, onVoiceStyleChange: (String) -> Unit,
     ttsSpeed: Float, onTtsSpeedChange: (Float) -> Unit,
@@ -829,6 +830,14 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 confirmPassword = ""
                 passwordError = ""
                 dialog = "password"
+            }
+            Spacer(Modifier.height(10.dp))
+            SettingsItem("登录会话管理", "查看并撤销其他登录会话") {
+                onAccountSessions()
+            }
+            Spacer(Modifier.height(10.dp))
+            SettingsItem("导出个人数据", "账号、会话与个性化设置 JSON") {
+                onExportData()
             }
         }
         Spacer(Modifier.height(28.dp))

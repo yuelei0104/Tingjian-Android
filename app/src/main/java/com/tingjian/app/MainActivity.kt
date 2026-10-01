@@ -51,11 +51,13 @@ import com.tingjian.app.network.GlossaryUpsertRequest
 import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.network.UserPreferenceUpdateRequest
+import com.tingjian.app.network.AccountSessionResponse
 import com.tingjian.app.data.ApiResult
 import com.tingjian.app.data.resumeIndexFor
 import com.tingjian.app.data.toDashboard
 import com.tingjian.app.data.toUsageDashboard
 import com.tingjian.app.data.toConversation
+import com.tingjian.app.data.toPrettyJson
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -85,6 +87,7 @@ private fun TingjianApp() {
     var selected by remember { mutableStateOf<Conversation?>(null) }
     var showLogin by remember { mutableStateOf(false) }
     var showUsage by remember { mutableStateOf(false) }
+    var showAccountSessions by remember { mutableStateOf(false) }
     var demoLoggedIn by remember { mutableStateOf(repository.isLoggedIn()) }
     var large by remember { mutableStateOf(preferences.getBoolean("large_text", false)) }
     var voiceMode by remember { mutableStateOf(preferences.getString("voice_mode", "自动") ?: "自动") }
@@ -141,7 +144,14 @@ private fun TingjianApp() {
     var detailRequestVersion by remember { mutableIntStateOf(0) }
     var detailActionRunning by remember { mutableStateOf(false) }
     var detailActionError by remember { mutableStateOf("") }
+    var detailSummary by remember { mutableStateOf("") }
+    var detailSummaryLoading by remember { mutableStateOf(false) }
+    var detailSummaryError by remember { mutableStateOf("") }
     var dataActionRunning by remember { mutableStateOf(false) }
+    var accountSessions by remember { mutableStateOf(emptyList<AccountSessionResponse>()) }
+    var accountSessionsLoading by remember { mutableStateOf(false) }
+    var accountSessionsError by remember { mutableStateOf("") }
+    var revokingSessionId by remember { mutableStateOf<String?>(null) }
     var conversationSyncRunning by remember { mutableStateOf(false) }
     var networkGeneration by remember { mutableIntStateOf(0) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -210,6 +220,17 @@ private fun TingjianApp() {
             is ApiResult.Error -> usageError = result.message
         }
         usageLoading = false
+    }
+
+    suspend fun reloadAccountSessions() {
+        if (!demoLoggedIn || accountSessionsLoading) return
+        accountSessionsLoading = true
+        accountSessionsError = ""
+        when (val result = repository.accountSessions()) {
+            is ApiResult.Success -> accountSessions = result.value
+            is ApiResult.Error -> accountSessionsError = result.message
+        }
+        accountSessionsLoading = false
     }
 
     fun saveDisplayPreferences() {
@@ -579,6 +600,9 @@ private fun TingjianApp() {
         detailError = ""
         detailActionRunning = false
         detailActionError = ""
+        detailSummary = ""
+        detailSummaryLoading = false
+        detailSummaryError = ""
         val serverId = record.serverId ?: return
         if (!demoLoggedIn || record.transcript.isNotEmpty()) return
         val requestVersion = ++detailRequestVersion
@@ -729,12 +753,15 @@ private fun TingjianApp() {
         }
     }
 
-    BackHandler(enabled = entered && (showLogin || showUsage)) {
+    BackHandler(enabled = entered && (showLogin || showUsage || showAccountSessions)) {
         showLogin = false
         showUsage = false
+        showAccountSessions = false
     }
-    BackHandler(enabled = entered && !showLogin && !showUsage && selected != null) { selected = null }
-    BackHandler(enabled = entered && !showLogin && !showUsage && selected == null && tab != 0) { tab = 0 }
+    BackHandler(enabled = entered && !showLogin && !showUsage && !showAccountSessions &&
+        selected != null) { selected = null }
+    BackHandler(enabled = entered && !showLogin && !showUsage && !showAccountSessions &&
+        selected == null && tab != 0) { tab = 0 }
 
     if (!entered) {
         WelcomeScreen {
@@ -744,7 +771,8 @@ private fun TingjianApp() {
         return
     }
     Scaffold(containerColor = canvas, snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
-        if (!showLogin && !showUsage && selected == null && !keyboardVisible) BottomTabs(tab) {
+        if (!showLogin && !showUsage && !showAccountSessions && selected == null &&
+            !keyboardVisible) BottomTabs(tab) {
             if (it == 1 && sessionStartedAt == 0L) {
                 sessionStartedAt = System.currentTimeMillis()
                 createRemoteSession(if (scene == "日常") "面对面会话" else "$scene · 会话")
@@ -764,6 +792,28 @@ private fun TingjianApp() {
                     onRetry = { scope.launch { reloadUsage() } },
                     onBack = { showUsage = false }
                 )
+            } else if (showAccountSessions) {
+                AccountSessionScreen(
+                    sessions = accountSessions,
+                    loading = accountSessionsLoading,
+                    error = accountSessionsError,
+                    revokingId = revokingSessionId,
+                    onRetry = { scope.launch { reloadAccountSessions() } },
+                    onRevoke = { sessionId ->
+                        if (revokingSessionId == null) scope.launch {
+                            revokingSessionId = sessionId
+                            when (val result = repository.revokeAccountSession(sessionId)) {
+                                is ApiResult.Success -> {
+                                    accountSessions = accountSessions.filterNot { it.id == sessionId }
+                                    syncNotice = "登录会话已撤销"
+                                }
+                                is ApiResult.Error -> accountSessionsError = result.message
+                            }
+                            revokingSessionId = null
+                        }
+                    },
+                    onBack = { showAccountSessions = false }
+                )
             } else if (showLogin) {
                 DemoLoginScreen(onBack = { showLogin = false }, onLogin = {
                     demoLoggedIn = true
@@ -777,11 +827,37 @@ private fun TingjianApp() {
                     onRetry = { openConversation(record) },
                     actionRunning = detailActionRunning || conversationSyncRunning,
                     actionError = detailActionError,
+                    summary = detailSummary,
+                    summaryLoading = detailSummaryLoading,
+                    summaryError = detailSummaryError,
+                    onSummarize = {
+                        if (!detailSummaryLoading) scope.launch {
+                            detailSummaryLoading = true
+                            detailSummaryError = ""
+                            val serverId = record.serverId
+                            if (serverId == null || !demoLoggedIn) {
+                                detailSummary = if (record.transcript.isEmpty()) ""
+                                else localSummary(record)
+                            } else {
+                                when (val result = repository.summarizeHistory(serverId)) {
+                                    is ApiResult.Success -> detailSummary = result.value.summary
+                                    is ApiResult.Error -> detailSummaryError = result.message
+                                }
+                            }
+                            detailSummaryLoading = false
+                        }
+                    },
+                    onClearSummary = {
+                        detailSummary = ""
+                        detailSummaryError = ""
+                    },
                     onBack = {
                         detailRequestVersion++
                         detailLoading = false
                         detailError = ""
                         detailActionError = ""
+                        detailSummary = ""
+                        detailSummaryError = ""
                         selected = null
                     },
                     onRename = { newTitle ->
@@ -1007,6 +1083,29 @@ private fun TingjianApp() {
                             dataActionRunning = false
                         }
                     }, onUsage = { showUsage = true },
+                    onAccountSessions = {
+                        showAccountSessions = true
+                        scope.launch { reloadAccountSessions() }
+                    },
+                    onExportData = {
+                        if (!dataActionRunning) scope.launch {
+                            dataActionRunning = true
+                            when (val result = repository.exportData()) {
+                                is ApiResult.Success -> {
+                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/json"
+                                        putExtra(Intent.EXTRA_SUBJECT, "听见个人数据导出")
+                                        putExtra(Intent.EXTRA_TEXT, result.value.toPrettyJson())
+                                    }
+                                    context.startActivity(Intent.createChooser(
+                                        intent, "导出个人数据"
+                                    ))
+                                }
+                                is ApiResult.Error -> syncNotice = result.message
+                            }
+                            dataActionRunning = false
+                        }
+                    },
                     onClearHistory = {
                         if (demoLoggedIn) {
                             if (!dataActionRunning) scope.launch {
