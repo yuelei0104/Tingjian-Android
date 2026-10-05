@@ -1,0 +1,897 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 2f98662..69e2795 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -6,6 +6,7 @@
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+     <uses-permission android:name="android.permission.VIBRATE" />
++    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+ 
+     <queries>
+         <intent>
+diff --git a/app/src/main/java/com/tingjian/app/AccessibilityFeedback.kt b/app/src/main/java/com/tingjian/app/AccessibilityFeedback.kt
+new file mode 100644
+index 0000000..accdd38
+--- /dev/null
++++ b/app/src/main/java/com/tingjian/app/AccessibilityFeedback.kt
+@@ -0,0 +1,117 @@
++package com.tingjian.app
++
++import android.Manifest
++import android.app.Notification
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.content.Context
++import android.content.pm.PackageManager
++import android.os.Build
++import android.os.VibrationEffect
++import android.os.Vibrator
++import android.os.VibratorManager
++
++internal enum class AccessibilityEvent {
++    KEYWORD,
++    CONNECTION_LOST
++}
++
++internal fun vibrationPattern(
++    event: AccessibilityEvent,
++    strong: Boolean
++): LongArray = when (event) {
++    AccessibilityEvent.KEYWORD -> if (strong) {
++        longArrayOf(0L, 180L, 90L, 180L)
++    } else {
++        longArrayOf(0L, 100L)
++    }
++    AccessibilityEvent.CONNECTION_LOST -> if (strong) {
++        longArrayOf(0L, 250L, 120L, 250L, 120L, 250L)
++    } else {
++        longArrayOf(0L, 160L, 100L, 160L)
++    }
++}
++
++internal class AccessibilityFeedback(context: Context) {
++    private val appContext = context.applicationContext
++    private val notificationManager =
++        appContext.getSystemService(NotificationManager::class.java)
++
++    init {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            notificationManager.createNotificationChannel(NotificationChannel(
++                CHANNEL_ID,
++                "听见无障碍提醒",
++                NotificationManager.IMPORTANCE_HIGH
++            ).apply {
++                description = "关键词和连接状态的视觉提醒"
++                enableVibration(false)
++            })
++        }
++    }
++
++    fun keyword(
++        keyword: String,
++        vibrationEnabled: Boolean,
++        strongVibration: Boolean,
++        notificationEnabled: Boolean
++    ) {
++        if (vibrationEnabled) vibrate(vibrationPattern(
++            AccessibilityEvent.KEYWORD, strongVibration
++        ))
++        if (notificationEnabled) notify(
++            KEYWORD_NOTIFICATION_ID,
++            "关键词提醒",
++            "字幕中出现：$keyword"
++        )
++    }
++
++    fun connectionLost(notificationEnabled: Boolean) {
++        if (notificationEnabled) notify(
++            CONNECTION_NOTIFICATION_ID,
++            "实时同步已中断",
++            "消息将保存在本机，恢复网络后自动补发"
++        )
++    }
++
++    private fun vibrate(pattern: LongArray) {
++        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            appContext.getSystemService(VibratorManager::class.java).defaultVibrator
++        } else {
++            @Suppress("DEPRECATION")
++            appContext.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
++        }
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
++        } else {
++            @Suppress("DEPRECATION")
++            vibrator.vibrate(pattern, -1)
++        }
++    }
++
++    private fun notify(id: Int, title: String, text: String) {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
++            appContext.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
++            PackageManager.PERMISSION_GRANTED) return
++
++        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            Notification.Builder(appContext, CHANNEL_ID)
++        } else {
++            @Suppress("DEPRECATION")
++            Notification.Builder(appContext)
++        }
++        notificationManager.notify(id, builder
++            .setSmallIcon(android.R.drawable.stat_notify_more)
++            .setContentTitle(title)
++            .setContentText(text)
++            .setCategory(Notification.CATEGORY_STATUS)
++            .setAutoCancel(true)
++            .build())
++    }
++
++    private companion object {
++        const val CHANNEL_ID = "tingjian_accessibility"
++        const val KEYWORD_NOTIFICATION_ID = 4101
++        const val CONNECTION_NOTIFICATION_ID = 4102
++    }
++}
+diff --git a/app/src/main/java/com/tingjian/app/AccountScreens.kt b/app/src/main/java/com/tingjian/app/AccountScreens.kt
+index 9701301..8c22d44 100644
+--- a/app/src/main/java/com/tingjian/app/AccountScreens.kt
++++ b/app/src/main/java/com/tingjian/app/AccountScreens.kt
+@@ -143,6 +143,33 @@ internal fun UsageScreen(
+     }
+ }
+ 
++@Composable
++private fun PreferenceSwitch(
++    title: String,
++    subtitle: String,
++    checked: Boolean,
++    onCheckedChange: (Boolean) -> Unit
++) {
++    Surface(
++        color = white,
++        shape = RoundedCornerShape(17.dp),
++        border = BorderStroke(1.dp, divider),
++        modifier = Modifier.fillMaxWidth()
++    ) {
++        Row(
++            Modifier.padding(17.dp),
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            Column(Modifier.weight(1f)) {
++                Text(title, color = ink, fontWeight = FontWeight.SemiBold)
++                Spacer(Modifier.height(5.dp))
++                Text(subtitle, color = secondary, fontSize = 12.sp, lineHeight = 18.sp)
++            }
++            Switch(checked = checked, onCheckedChange = onCheckedChange)
++        }
++    }
++}
++
+ private fun formatUsageValue(code: String, value: Long, unit: String): String =
+     if (code == "CAPTION_SECONDS") {
+         if (value >= 60) "${value / 60} 分钟" else "$value 秒"
+@@ -313,6 +340,11 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
+     recognitionLanguage: String, onLanguageChange: (String) -> Unit,
+     keywordVibration: Boolean, onKeywordVibrationChange: (Boolean) -> Unit,
+     keywordHighlight: Boolean, onKeywordHighlightChange: (Boolean) -> Unit,
++    highContrast: Boolean, onHighContrastChange: (Boolean) -> Unit,
++    visualAlerts: Boolean, onVisualAlertsChange: (Boolean) -> Unit,
++    systemNotifications: Boolean, onSystemNotificationsChange: (Boolean) -> Unit,
++    strongVibration: Boolean, onStrongVibrationChange: (Boolean) -> Unit,
++    captionFollow: Boolean, onCaptionFollowChange: (Boolean) -> Unit,
+     terms: SnapshotStateList<GlossaryTerm>, quickPhrases: SnapshotStateList<QuickPhrase>,
+     onTermsChanged: () -> Unit, onQuickPhrasesChanged: () -> Unit,
+     autoSummary: Boolean, onAutoSummaryChange: (Boolean) -> Unit,
+@@ -855,6 +887,43 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
+             }
+         }
+         Spacer(Modifier.height(10.dp))
++        Text("无障碍提醒", color = ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
++        Spacer(Modifier.height(10.dp))
++        PreferenceSwitch(
++            title = "高对比度字幕",
++            subtitle = "增强字幕气泡、边框和关键词提醒的明暗对比",
++            checked = highContrast,
++            onCheckedChange = onHighContrastChange
++        )
++        Spacer(Modifier.height(10.dp))
++        PreferenceSwitch(
++            title = "视觉提醒",
++            subtitle = "命中关键词时在字幕页显示醒目的提示条",
++            checked = visualAlerts,
++            onCheckedChange = onVisualAlertsChange
++        )
++        Spacer(Modifier.height(10.dp))
++        PreferenceSwitch(
++            title = "系统通知",
++            subtitle = "应用在前台或后台时提醒关键词与连接中断",
++            checked = systemNotifications,
++            onCheckedChange = onSystemNotificationsChange
++        )
++        Spacer(Modifier.height(10.dp))
++        PreferenceSwitch(
++            title = "增强振动",
++            subtitle = "关键词提醒使用更长的双段振动节奏",
++            checked = strongVibration,
++            onCheckedChange = onStrongVibrationChange
++        )
++        Spacer(Modifier.height(10.dp))
++        PreferenceSwitch(
++            title = "默认跟随字幕",
++            subtitle = "进入字幕页后自动滚动到最新识别内容",
++            checked = captionFollow,
++            onCheckedChange = onCaptionFollowChange
++        )
++        Spacer(Modifier.height(18.dp))
+         Surface(color = white, shape = RoundedCornerShape(17.dp),
+             border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
+             Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+diff --git a/app/src/main/java/com/tingjian/app/CommonUi.kt b/app/src/main/java/com/tingjian/app/CommonUi.kt
+index 3111afe..bc4224d 100644
+--- a/app/src/main/java/com/tingjian/app/CommonUi.kt
++++ b/app/src/main/java/com/tingjian/app/CommonUi.kt
+@@ -143,13 +143,14 @@ internal fun ConversationCard(item: Conversation, onClick: () -> Unit) {
+ @Composable
+ internal fun ChatBubble(text: String, fromMe: Boolean, large: Boolean,
+     inProgress: Boolean = false, speaker: String? = null, onReplay: (() -> Unit)? = null,
+-    keywords: List<String> = emptyList()) {
++    keywords: List<String> = emptyList(), highContrast: Boolean = false) {
+     val highlighted = buildAnnotatedString {
+         append(text)
+         keywords.filter { it.isNotBlank() }.forEach { keyword ->
+             var start = text.indexOf(keyword, ignoreCase = true)
+             while (start >= 0) {
+                 addStyle(SpanStyle(background = Color(0xFFFFE5A3),
++                    color = if (highContrast) Color.Black else Color.Unspecified,
+                     fontWeight = FontWeight.Bold), start, start + keyword.length)
+                 start = text.indexOf(keyword, start + keyword.length, ignoreCase = true)
+             }
+@@ -163,11 +164,21 @@ internal fun ChatBubble(text: String, fromMe: Boolean, large: Boolean,
+                 else if (inProgress) "正在识别" else "对方",
+                 color = secondary, fontSize = 11.sp,
+                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp))
+-            Surface(color = if (fromMe) mint else white,
+-                shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, divider),
++            val bubbleColor = when {
++                highContrast && fromMe -> Color(0xFF00363A)
++                highContrast -> Color.White
++                fromMe -> mint
++                else -> white
++            }
++            Surface(color = bubbleColor,
++                shape = RoundedCornerShape(18.dp),
++                border = BorderStroke(if (highContrast) 2.dp else 1.dp,
++                    if (highContrast) Color.Black else divider),
+                 modifier = if (onReplay == null) Modifier else Modifier.clickable(onClick = onReplay)) {
+                 Text(highlighted, Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
+-                    color = ink, fontSize = if (large) 23.sp else 17.sp,
++                    color = if (highContrast && fromMe) Color.White else if (highContrast) {
++                        Color.Black
++                    } else ink, fontSize = if (large) 23.sp else 17.sp,
+                     lineHeight = if (large) 34.sp else 26.sp)
+             }
+         }
+diff --git a/app/src/main/java/com/tingjian/app/HistoryScreens.kt b/app/src/main/java/com/tingjian/app/HistoryScreens.kt
+index 42aba4e..4487ec3 100644
+--- a/app/src/main/java/com/tingjian/app/HistoryScreens.kt
++++ b/app/src/main/java/com/tingjian/app/HistoryScreens.kt
+@@ -166,7 +166,8 @@ internal fun HistoryScreen(records: List<Conversation>, loggedIn: Boolean, remot
+ }
+ 
+ @Composable
+-internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boolean,
++internal fun DetailScreen(record: Conversation, large: Boolean, highContrast: Boolean,
++    autoSummary: Boolean,
+     keywords: List<String>,
+     loading: Boolean, loadError: String, onRetry: () -> Unit,
+     actionRunning: Boolean, actionError: String,
+@@ -268,7 +269,8 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
+         }
+         record.transcript.forEachIndexed { index, (speaker, content) ->
+             ChatBubble(content, fromMe = speaker == "我", large = large,
+-                speaker = "$speaker · 第 ${index + 1} 条", keywords = keywords)
++                speaker = "$speaker · 第 ${index + 1} 条", keywords = keywords,
++                highContrast = highContrast)
+             Spacer(Modifier.height(12.dp))
+         }
+         Spacer(Modifier.height(8.dp))
+diff --git a/app/src/main/java/com/tingjian/app/LiveScreen.kt b/app/src/main/java/com/tingjian/app/LiveScreen.kt
+index 8d3b002..8c55882 100644
+--- a/app/src/main/java/com/tingjian/app/LiveScreen.kt
++++ b/app/src/main/java/com/tingjian/app/LiveScreen.kt
+@@ -9,9 +9,6 @@ import android.os.Build
+ import android.os.Bundle
+ import android.os.Handler
+ import android.os.Looper
+-import android.os.VibrationEffect
+-import android.os.Vibrator
+-import android.os.VibratorManager
+ import android.provider.Settings
+ import android.speech.RecognitionListener
+ import android.speech.RecognizerIntent
+@@ -44,6 +41,9 @@ import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.platform.LocalFocusManager
+ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
++import androidx.compose.ui.semantics.LiveRegionMode
++import androidx.compose.ui.semantics.liveRegion
++import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.text.style.TextOverflow
+@@ -66,12 +66,15 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+     language: String, onLanguageChange: (String) -> Unit, voiceMode: String,
+     voiceStyle: String, ttsSpeed: Float, keywords: List<String>,
+     keywordVibration: Boolean, keywordHighlight: Boolean,
++    highContrast: Boolean, visualAlerts: Boolean, systemNotifications: Boolean,
++    strongVibration: Boolean, captionFollow: Boolean,
+     quickPhrases: List<QuickPhrase>, sessionStartedAt: Long,
+     cloudSyncState: String, pendingMessageCount: Int,
+     onRetryCloudSync: () -> Unit,
+     onLineAdded: (ChatLine, Int) -> Unit,
+     onFinish: () -> Unit) {
+     val context = LocalContext.current
++    val accessibilityFeedback = remember { AccessibilityFeedback(context) }
+     var reply by remember { mutableStateOf("") }
+     var confirmFinish by remember { mutableStateOf(false) }
+     var quickOpen by remember { mutableStateOf(false) }
+@@ -100,11 +103,19 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+     var permissionDenied by remember { mutableStateOf(false) }
+     var connectionState by remember { mutableStateOf("已连接") }
+     var keywordNotice by remember { mutableStateOf("") }
+-    var autoScroll by remember { mutableStateOf(true) }
++    var autoScroll by remember(captionFollow) { mutableStateOf(captionFollow) }
++    var previousCloudSyncState by remember { mutableStateOf(cloudSyncState) }
+     val keywordCooldown = remember { mutableMapOf<String, Long>() }
+     val focusManager = LocalFocusManager.current
+     val keyboardController = LocalSoftwareKeyboardController.current
+ 
++    LaunchedEffect(cloudSyncState, systemNotifications) {
++        if (previousCloudSyncState == "已连接" && cloudSyncState != "已连接") {
++            accessibilityFeedback.connectionLost(systemNotifications)
++        }
++        previousCloudSyncState = cloudSyncState
++    }
++
+     LaunchedEffect(sessionStartedAt, paused) {
+         while (true) {
+             if (!paused && sessionStartedAt > 0L) {
+@@ -326,23 +337,16 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+                         connectionState = "已连接"
+                         val hit = keywords.firstOrNull { recognized.contains(it, ignoreCase = true) }
+                         if (hit != null) {
+-                            keywordNotice = "关键词提醒：$hit"
++                            keywordNotice = if (visualAlerts) "关键词提醒：$hit" else ""
+                             val now = System.currentTimeMillis()
+                             val last = keywordCooldown[hit] ?: 0L
+-                            if (keywordVibration && now - last >= 10_000L) {
+-                                val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+-                                    context.getSystemService(VibratorManager::class.java).defaultVibrator
+-                                } else {
+-                                    @Suppress("DEPRECATION")
+-                                    context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+-                                }
+-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+-                                    vibrator.vibrate(VibrationEffect.createOneShot(100,
+-                                        VibrationEffect.DEFAULT_AMPLITUDE))
+-                                } else {
+-                                    @Suppress("DEPRECATION")
+-                                    vibrator.vibrate(100)
+-                                }
++                            if (now - last >= 10_000L) {
++                                accessibilityFeedback.keyword(
++                                    keyword = hit,
++                                    vibrationEnabled = keywordVibration,
++                                    strongVibration = strongVibration,
++                                    notificationEnabled = systemNotifications
++                                )
+                                 keywordCooldown[hit] = now
+                             }
+                         }
+@@ -495,7 +499,8 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+         if (autoScroll) scroll.animateScrollTo(scroll.maxValue)
+     }
+ 
+-    Column(Modifier.fillMaxSize().imePadding().background(canvas)) {
++    Column(Modifier.fillMaxSize().imePadding()
++        .background(if (highContrast) Color.White else canvas)) {
+         Column(Modifier.fillMaxWidth().background(white)
+             .padding(horizontal = 20.dp, vertical = 13.dp)) {
+             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+@@ -528,7 +533,9 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+             Row(verticalAlignment = Alignment.CenterVertically) {
+                 Text("$connectionState · ${if (paused) "已暂停识别" else status}", color = teal,
+                     fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+-                    modifier = Modifier.weight(1f))
++                    modifier = Modifier.weight(1f).semantics {
++                        liveRegion = LiveRegionMode.Polite
++                    })
+                 if (connectionState != "已连接") {
+                     TextButton(onClick = {
+                         connectionState = "已连接"
+@@ -557,8 +564,12 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+             }
+             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                 if (keywordNotice.isNotEmpty()) {
+-                    Text(keywordNotice, color = ink, fontSize = 12.sp,
+-                        modifier = Modifier.weight(1f).background(Color(0xFFFFF2C7),
++                    Text(keywordNotice,
++                        color = if (highContrast) Color.Black else ink,
++                        fontSize = if (large) 16.sp else 12.sp,
++                        fontWeight = FontWeight.Bold,
++                        modifier = Modifier.weight(1f).background(
++                            if (highContrast) Color(0xFFFFFF00) else Color(0xFFFFF2C7),
+                             RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 5.dp))
+                 } else Spacer(Modifier.weight(1f))
+                 TextButton(onClick = { autoScroll = !autoScroll }) {
+@@ -589,11 +600,13 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
+             lines.forEach { line ->
+                 ChatBubble(line.content, line.fromMe, large,
+                     onReplay = if (line.fromMe) ({ playText(line.content) }) else null,
+-                    keywords = if (keywordHighlight) keywords else emptyList())
++                    keywords = if (keywordHighlight) keywords else emptyList(),
++                    highContrast = highContrast)
+                 Spacer(Modifier.height(12.dp))
+             }
+             if (partial.isNotBlank()) {
+-                ChatBubble(partial, fromMe = false, large = large, inProgress = true)
++                ChatBubble(partial, fromMe = false, large = large, inProgress = true,
++                    highContrast = highContrast)
+                 Spacer(Modifier.height(12.dp))
+             }
+             if (showServiceHelp) {
+diff --git a/app/src/main/java/com/tingjian/app/MainActivity.kt b/app/src/main/java/com/tingjian/app/MainActivity.kt
+index 8995c4e..bc58846 100644
+--- a/app/src/main/java/com/tingjian/app/MainActivity.kt
++++ b/app/src/main/java/com/tingjian/app/MainActivity.kt
+@@ -5,6 +5,7 @@ import android.content.SharedPreferences
+ import android.content.pm.PackageManager
+ import android.net.ConnectivityManager
+ import android.net.Network
++import android.os.Build
+ import android.os.Bundle
+ import android.os.Handler
+ import android.os.Looper
+@@ -52,6 +53,7 @@ import com.tingjian.app.network.KeywordUpsertRequest
+ import com.tingjian.app.network.QuickPhraseUpsertRequest
+ import com.tingjian.app.network.UserPreferenceUpdateRequest
+ import com.tingjian.app.network.AccountSessionResponse
++import com.tingjian.app.network.AccessibilityPreferenceUpdateRequest
+ import com.tingjian.app.data.ApiResult
+ import com.tingjian.app.data.LiveSessionDraft
+ import com.tingjian.app.data.LiveSessionDraftStore
+@@ -114,6 +116,21 @@ private fun TingjianApp() {
+     var recognitionLanguage by remember {
+         mutableStateOf(preferences.getString("recognition_language", "中英混合") ?: "中英混合")
+     }
++    var highContrast by remember {
++        mutableStateOf(preferences.getBoolean("accessibility_high_contrast", false))
++    }
++    var visualAlerts by remember {
++        mutableStateOf(preferences.getBoolean("accessibility_visual_alerts", true))
++    }
++    var systemNotifications by remember {
++        mutableStateOf(preferences.getBoolean("accessibility_notifications", false))
++    }
++    var strongVibration by remember {
++        mutableStateOf(preferences.getBoolean("accessibility_strong_vibration", false))
++    }
++    var captionFollow by remember {
++        mutableStateOf(preferences.getBoolean("accessibility_caption_follow", true))
++    }
+     val savedRecords = remember { mutableStateListOf<Conversation>().also {
+         it.addAll(loadConversations(preferences))
+     } }
+@@ -135,6 +152,20 @@ private fun TingjianApp() {
+     var preferenceVersion by remember { mutableIntStateOf(0) }
+     var preferenceSyncRunning by remember { mutableStateOf(false) }
+     var preferenceSyncError by remember { mutableStateOf("") }
++    var accessibilityVersion by remember { mutableIntStateOf(0) }
++    var accessibilitySyncRunning by remember { mutableStateOf(false) }
++    var accessibilitySyncError by remember { mutableStateOf("") }
++    val notificationPermissionLauncher = rememberLauncherForActivityResult(
++        ActivityResultContracts.RequestPermission()
++    ) { granted ->
++        if (!granted) {
++            systemNotifications = false
++            preferences.edit()
++                .putBoolean("accessibility_notifications", false)
++                .apply()
++            if (demoLoggedIn) accessibilityVersion++
++        }
++    }
+     var knownGlossaryIds by remember { mutableStateOf(emptySet<String>()) }
+     var knownQuickPhraseIds by remember { mutableStateOf(emptySet<String>()) }
+     var homeDashboard by remember { mutableStateOf<HomeDashboard?>(null) }
+@@ -433,6 +464,103 @@ private fun TingjianApp() {
+         preferenceSyncError = ""
+     }
+ 
++    fun saveAccessibilityPreferences() {
++        preferences.edit()
++            .putBoolean("accessibility_high_contrast", highContrast)
++            .putBoolean("accessibility_visual_alerts", visualAlerts)
++            .putBoolean("accessibility_notifications", systemNotifications)
++            .putBoolean("accessibility_strong_vibration", strongVibration)
++            .putBoolean("accessibility_caption_follow", captionFollow)
++            .apply()
++    }
++
++    fun markAccessibilityChanged() {
++        saveAccessibilityPreferences()
++        if (demoLoggedIn) {
++            preferences.edit()
++                .putBoolean("accessibility_sync_pending", true)
++                .putString("accessibility_sync_owner", repository.email().orEmpty())
++                .apply()
++            accessibilityVersion++
++        }
++    }
++
++    suspend fun syncAccessibility(showSuccess: Boolean = false) {
++        if (!demoLoggedIn || accessibilitySyncRunning) return
++        accessibilitySyncRunning = true
++        while (demoLoggedIn) {
++            val versionAtStart = accessibilityVersion
++            val request = AccessibilityPreferenceUpdateRequest(
++                highContrast, visualAlerts, systemNotifications,
++                strongVibration, captionFollow
++            )
++            when (val result = repository.updateAccessibilityPreferences(request)) {
++                is ApiResult.Success -> {
++                    if (versionAtStart != accessibilityVersion) continue
++                    preferences.edit()
++                        .putBoolean("accessibility_sync_pending", false)
++                        .putString("accessibility_sync_owner", repository.email().orEmpty())
++                        .apply()
++                    accessibilitySyncError = ""
++                    if (showSuccess) syncNotice = "无障碍设置已同步"
++                }
++                is ApiResult.Error -> {
++                    accessibilitySyncError = result.message
++                    if (showSuccess) syncNotice = "设置已保存在本机，云端同步失败"
++                }
++            }
++            break
++        }
++        accessibilitySyncRunning = false
++    }
++
++    suspend fun reloadAccessibility() {
++        if (!demoLoggedIn) return
++        val pendingForCurrentUser =
++            preferences.getBoolean("accessibility_sync_pending", false) &&
++                preferences.getString("accessibility_sync_owner", null) ==
++                repository.email().orEmpty()
++        if (pendingForCurrentUser) {
++            syncAccessibility()
++            return
++        }
++        when (val result = repository.accessibilityPreferences()) {
++            is ApiResult.Success -> {
++                val remote = result.value
++                if (!remote.configured) {
++                    syncAccessibility()
++                    return
++                }
++                highContrast = remote.highContrast
++                visualAlerts = remote.visualAlerts
++                systemNotifications = remote.systemNotifications
++                strongVibration = remote.strongVibration
++                captionFollow = remote.captionFollow
++                saveAccessibilityPreferences()
++                preferences.edit()
++                    .putBoolean("accessibility_sync_pending", false)
++                    .putString("accessibility_sync_owner", repository.email().orEmpty())
++                    .apply()
++                accessibilitySyncError = ""
++            }
++            is ApiResult.Error -> accessibilitySyncError = result.message
++        }
++    }
++
++    fun resetAccessibilityPreferences() {
++        highContrast = false
++        visualAlerts = true
++        systemNotifications = false
++        strongVibration = false
++        captionFollow = true
++        saveAccessibilityPreferences()
++        preferences.edit()
++            .putBoolean("accessibility_sync_pending", false)
++            .remove("accessibility_sync_owner")
++            .apply()
++        accessibilitySyncError = ""
++    }
++
+     fun updateLocalConversation(
+         localId: Long,
+         update: (Conversation) -> Conversation
+@@ -817,6 +945,7 @@ private fun TingjianApp() {
+             refreshPendingMessageCount()
+             repository.accountProfile()
+             reloadPreferences()
++            reloadAccessibility()
+             reloadHome()
+             reloadRemoteHistory()
+             reloadPersonalization()
+@@ -850,6 +979,8 @@ private fun TingjianApp() {
+             knownQuickPhraseIds = emptySet()
+             preferenceSyncRunning = false
+             preferenceSyncError = ""
++            accessibilitySyncRunning = false
++            accessibilitySyncError = ""
+             realtimeState = RealtimeMessageClient.State.DISCONNECTED
+             pendingMessageCount = 0
+         }
+@@ -936,6 +1067,13 @@ private fun TingjianApp() {
+                 pendingOwner == repository.email().orEmpty()) {
+                 syncPreferences()
+             }
++            val accessibilityOwner = preferences.getString(
++                "accessibility_sync_owner", null
++            )
++            if (preferences.getBoolean("accessibility_sync_pending", false) &&
++                accessibilityOwner == repository.email().orEmpty()) {
++                syncAccessibility()
++            }
+         }
+     }
+     LaunchedEffect(preferenceVersion) {
+@@ -944,6 +1082,12 @@ private fun TingjianApp() {
+             syncPreferences()
+         }
+     }
++    LaunchedEffect(accessibilityVersion) {
++        if (accessibilityVersion > 0 && demoLoggedIn) {
++            delay(400)
++            syncAccessibility()
++        }
++    }
+     LaunchedEffect(personalizationVersion) {
+         if (personalizationVersion > 0 && demoLoggedIn) {
+             delay(300)
+@@ -1025,7 +1169,8 @@ private fun TingjianApp() {
+             }
+         )
+     }
+-    Scaffold(containerColor = canvas, snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
++    Scaffold(containerColor = if (highContrast) Color.White else canvas,
++        snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
+         if (!showLogin && !showUsage && !showAccountSessions && selected == null &&
+             !keyboardVisible) BottomTabs(tab) {
+             if (it == 1 && sessionStartedAt == 0L) {
+@@ -1077,7 +1222,7 @@ private fun TingjianApp() {
+                     tab = 3
+                 })
+             } else if (record != null) {
+-                DetailScreen(record, large, autoSummary,
++                DetailScreen(record, large, highContrast, autoSummary,
+                     if (keywordHighlight) enabledKeywords(glossaryTerms) else emptyList(),
+                     loading = detailLoading, loadError = detailError,
+                     onRetry = { openConversation(record) },
+@@ -1185,6 +1330,11 @@ private fun TingjianApp() {
+                         .filter { it.enabled }.map { it.phrase }).distinct(),
+                     keywordVibration = keywordVibration,
+                     keywordHighlight = keywordHighlight,
++                    highContrast = highContrast,
++                    visualAlerts = visualAlerts,
++                    systemNotifications = systemNotifications,
++                    strongVibration = strongVibration,
++                    captionFollow = captionFollow,
+                     quickPhrases = quickPhrases.filter { it.enabled },
+                     sessionStartedAt = sessionStartedAt,
+                     cloudSyncState = when {
+@@ -1302,11 +1452,13 @@ private fun TingjianApp() {
+                     accountName = repository.displayName(), accountEmail = repository.email(),
+                     remoteCount = homeDashboard?.conversationCount ?: historyTotal,
+                     dataActionRunning = dataActionRunning || conversationSyncRunning ||
+-                        preferenceSyncRunning,
++                        preferenceSyncRunning || accessibilitySyncRunning,
+                     pendingSyncCount = pendingSyncCount,
+                     syncRunning = conversationSyncRunning,
+-                    preferenceSyncRunning = preferenceSyncRunning,
+-                    preferenceSyncError = preferenceSyncError,
++                    preferenceSyncRunning = preferenceSyncRunning || accessibilitySyncRunning,
++                    preferenceSyncError = preferenceSyncError.ifBlank {
++                        accessibilitySyncError
++                    },
+                     onLogin = { showLogin = true },
+                     onRetrySync = {
+                         if (demoLoggedIn) scope.launch {
+@@ -1316,6 +1468,7 @@ private fun TingjianApp() {
+                     onRetryPreferenceSync = {
+                         if (demoLoggedIn) scope.launch {
+                             syncPreferences(showSuccess = true)
++                            syncAccessibility(showSuccess = true)
+                         }
+                     },
+                     onLogout = {
+@@ -1378,6 +1531,7 @@ private fun TingjianApp() {
+                                     clearLocalHistory()
+                                     clearLocalPersonalization()
+                                     resetLocalPreferences()
++                                    resetAccessibilityPreferences()
+                                     clearRealtimeOutbox()
+                                     clearLiveDraft()
+                                     liveLines.clear()
+@@ -1402,6 +1556,7 @@ private fun TingjianApp() {
+                                     clearLocalHistory()
+                                     clearLocalPersonalization()
+                                     resetLocalPreferences()
++                                    resetAccessibilityPreferences()
+                                     clearRealtimeOutbox(ownerEmail)
+                                     clearLiveDraft(draftOwnerKey(ownerEmail))
+                                     liveLines.clear()
+@@ -1493,6 +1648,33 @@ private fun TingjianApp() {
+                     onKeywordHighlightChange = {
+                         keywordHighlight = it
+                         markPreferenceChanged()
++                    }, highContrast = highContrast,
++                    onHighContrastChange = {
++                        highContrast = it
++                        markAccessibilityChanged()
++                    }, visualAlerts = visualAlerts,
++                    onVisualAlertsChange = {
++                        visualAlerts = it
++                        markAccessibilityChanged()
++                    }, systemNotifications = systemNotifications,
++                    onSystemNotificationsChange = {
++                        systemNotifications = it
++                        if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
++                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
++                            PackageManager.PERMISSION_GRANTED) {
++                            notificationPermissionLauncher.launch(
++                                Manifest.permission.POST_NOTIFICATIONS
++                            )
++                        }
++                        markAccessibilityChanged()
++                    }, strongVibration = strongVibration,
++                    onStrongVibrationChange = {
++                        strongVibration = it
++                        markAccessibilityChanged()
++                    }, captionFollow = captionFollow,
++                    onCaptionFollowChange = {
++                        captionFollow = it
++                        markAccessibilityChanged()
+                     }, terms = glossaryTerms, quickPhrases = quickPhrases,
+                     onTermsChanged = {
+                         saveTerms(preferences, glossaryTerms)
+diff --git a/app/src/main/java/com/tingjian/app/data/TingjianRepository.kt b/app/src/main/java/com/tingjian/app/data/TingjianRepository.kt
+index d37d321..2495ca0 100644
+--- a/app/src/main/java/com/tingjian/app/data/TingjianRepository.kt
++++ b/app/src/main/java/com/tingjian/app/data/TingjianRepository.kt
+@@ -5,6 +5,8 @@ import com.tingjian.app.network.AccountDeleteRequest
+ import com.tingjian.app.network.AccountPasswordChangeRequest
+ import com.tingjian.app.network.AccountProfileUpdateRequest
+ import com.tingjian.app.network.AccountSessionResponse
++import com.tingjian.app.network.AccessibilityPreferenceResponse
++import com.tingjian.app.network.AccessibilityPreferenceUpdateRequest
+ import com.tingjian.app.network.ActiveSessionResponse
+ import com.tingjian.app.network.AuthTokenResponse
+ import com.tingjian.app.network.AuthUserResponse
+@@ -201,6 +203,14 @@ class TingjianRepository internal constructor(
+         request: UserPreferenceUpdateRequest
+     ): ApiResult<UserPreferenceResponse> = call { api.updatePreferences(request) }
+ 
++    suspend fun accessibilityPreferences(): ApiResult<AccessibilityPreferenceResponse> =
++        call { api.accessibilityPreferences() }
++
++    suspend fun updateAccessibilityPreferences(
++        request: AccessibilityPreferenceUpdateRequest
++    ): ApiResult<AccessibilityPreferenceResponse> =
++        call { api.updateAccessibilityPreferences(request) }
++
+     suspend fun clearHistory(): ApiResult<PrivacyDeleteResponse> =
+         call { api.clearHistory() }
+     suspend fun clearPersonalization(): ApiResult<PrivacyDeleteResponse> =
+diff --git a/app/src/main/java/com/tingjian/app/network/ApiModels.kt b/app/src/main/java/com/tingjian/app/network/ApiModels.kt
+index 8dd2eb3..edf8db0 100644
+--- a/app/src/main/java/com/tingjian/app/network/ApiModels.kt
++++ b/app/src/main/java/com/tingjian/app/network/ApiModels.kt
+@@ -246,7 +246,26 @@ data class PrivacyExportResponse(
+     val keywords: List<KeywordResponse>,
+     val glossaryTerms: List<GlossaryResponse>,
+     val quickPhrases: List<QuickPhraseResponse>,
+-    val preferences: UserPreferenceResponse
++    val preferences: UserPreferenceResponse,
++    val accessibility: AccessibilityPreferenceResponse
++)
++
++data class AccessibilityPreferenceResponse(
++    val configured: Boolean,
++    val highContrast: Boolean,
++    val visualAlerts: Boolean,
++    val systemNotifications: Boolean,
++    val strongVibration: Boolean,
++    val captionFollow: Boolean,
++    val updatedAt: String?
++)
++
++data class AccessibilityPreferenceUpdateRequest(
++    val highContrast: Boolean,
++    val visualAlerts: Boolean,
++    val systemNotifications: Boolean,
++    val strongVibration: Boolean,
++    val captionFollow: Boolean
+ )
+ 
+ data class UserPreferenceResponse(
+diff --git a/app/src/main/java/com/tingjian/app/network/TingjianApi.kt b/app/src/main/java/com/tingjian/app/network/TingjianApi.kt
+index 0c8f3bf..7cfea56 100644
+--- a/app/src/main/java/com/tingjian/app/network/TingjianApi.kt
++++ b/app/src/main/java/com/tingjian/app/network/TingjianApi.kt
+@@ -160,6 +160,14 @@ interface TingjianApi {
+         @Body request: UserPreferenceUpdateRequest
+     ): ApiEnvelope<UserPreferenceResponse>
+ 
++    @GET("api/v1/accessibility/preferences")
++    suspend fun accessibilityPreferences(): ApiEnvelope<AccessibilityPreferenceResponse>
++
++    @PUT("api/v1/accessibility/preferences")
++    suspend fun updateAccessibilityPreferences(
++        @Body request: AccessibilityPreferenceUpdateRequest
++    ): ApiEnvelope<AccessibilityPreferenceResponse>
++
+     @DELETE("api/v1/privacy/history")
+     suspend fun clearHistory(): ApiEnvelope<PrivacyDeleteResponse>
+ 
+diff --git a/app/src/test/java/com/tingjian/app/AccessibilityFeedbackTest.kt b/app/src/test/java/com/tingjian/app/AccessibilityFeedbackTest.kt
+new file mode 100644
+index 0000000..56a8038
+--- /dev/null
++++ b/app/src/test/java/com/tingjian/app/AccessibilityFeedbackTest.kt
+@@ -0,0 +1,24 @@
++package com.tingjian.app
++
++import org.junit.Assert.assertArrayEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class AccessibilityFeedbackTest {
++    @Test
++    fun strongKeywordPatternIsLongerThanDefaultPattern() {
++        val normal = vibrationPattern(AccessibilityEvent.KEYWORD, strong = false)
++        val strong = vibrationPattern(AccessibilityEvent.KEYWORD, strong = true)
++
++        assertTrue(strong.size > normal.size)
++        assertTrue(strong.sum() > normal.sum())
++    }
++
++    @Test
++    fun connectionPatternIsDistinctFromKeywordPattern() {
++        assertArrayEquals(
++            longArrayOf(0L, 160L, 100L, 160L),
++            vibrationPattern(AccessibilityEvent.CONNECTION_LOST, strong = false)
++        )
++    }
++}
+diff --git a/app/src/test/java/com/tingjian/app/data/DataExportJsonTest.kt b/app/src/test/java/com/tingjian/app/data/DataExportJsonTest.kt
+index f1e0113..c4158ea 100644
+--- a/app/src/test/java/com/tingjian/app/data/DataExportJsonTest.kt
++++ b/app/src/test/java/com/tingjian/app/data/DataExportJsonTest.kt
+@@ -1,6 +1,7 @@
+ package com.tingjian.app.data
+ 
+ import com.tingjian.app.network.AccountExportResponse
++import com.tingjian.app.network.AccessibilityPreferenceResponse
+ import com.tingjian.app.network.PrivacyExportResponse
+ import com.tingjian.app.network.UserPreferenceResponse
+ import org.junit.Assert.assertTrue
+@@ -31,6 +32,15 @@ class DataExportJsonTest {
+                 keywordHighlight = true,
+                 autoSummary = false,
+                 updatedAt = "2026-10-01T10:00:00"
++            ),
++            accessibility = AccessibilityPreferenceResponse(
++                configured = true,
++                highContrast = false,
++                visualAlerts = true,
++                systemNotifications = true,
++                strongVibration = false,
++                captionFollow = true,
++                updatedAt = "2026-10-01T10:00:00"
+             )
+         )
+ 
