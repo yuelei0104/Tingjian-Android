@@ -1,6 +1,7 @@
 package com.tingjian.app.data
 
 import com.tingjian.app.network.AccountExportResponse
+import com.tingjian.app.network.AccessibilityPreferenceResponse
 import com.tingjian.app.network.PrivacyExportResponse
 import com.tingjian.app.network.UserPreferenceResponse
 import org.junit.Assert.assertTrue
@@ -30,6 +31,15 @@ class DataExportJsonTest {
                 keywordVibration = true,
                 keywordHighlight = true,
                 autoSummary = false,
+                updatedAt = "2026-10-01T10:00:00"
+            ),
+            accessibility = AccessibilityPreferenceResponse(
+                configured = true,
+                highContrast = false,
+                visualAlerts = true,
+                systemNotifications = true,
+                strongVibration = false,
+                captionFollow = true,
                 updatedAt = "2026-10-01T10:00:00"
             )
         )

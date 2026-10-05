@@ -143,13 +143,14 @@ internal fun ConversationCard(item: Conversation, onClick: () -> Unit) {
 @Composable
 internal fun ChatBubble(text: String, fromMe: Boolean, large: Boolean,
     inProgress: Boolean = false, speaker: String? = null, onReplay: (() -> Unit)? = null,
-    keywords: List<String> = emptyList()) {
+    keywords: List<String> = emptyList(), highContrast: Boolean = false) {
     val highlighted = buildAnnotatedString {
         append(text)
         keywords.filter { it.isNotBlank() }.forEach { keyword ->
             var start = text.indexOf(keyword, ignoreCase = true)
             while (start >= 0) {
                 addStyle(SpanStyle(background = Color(0xFFFFE5A3),
+                    color = if (highContrast) Color.Black else Color.Unspecified,
                     fontWeight = FontWeight.Bold), start, start + keyword.length)
                 start = text.indexOf(keyword, start + keyword.length, ignoreCase = true)
             }
@@ -163,11 +164,21 @@ internal fun ChatBubble(text: String, fromMe: Boolean, large: Boolean,
                 else if (inProgress) "正在识别" else "对方",
                 color = secondary, fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp))
-            Surface(color = if (fromMe) mint else white,
-                shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, divider),
+            val bubbleColor = when {
+                highContrast && fromMe -> Color(0xFF00363A)
+                highContrast -> Color.White
+                fromMe -> mint
+                else -> white
+            }
+            Surface(color = bubbleColor,
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp,
+                    if (highContrast) Color.Black else divider),
                 modifier = if (onReplay == null) Modifier else Modifier.clickable(onClick = onReplay)) {
                 Text(highlighted, Modifier.padding(horizontal = 15.dp, vertical = 12.dp),
-                    color = ink, fontSize = if (large) 23.sp else 17.sp,
+                    color = if (highContrast && fromMe) Color.White else if (highContrast) {
+                        Color.Black
+                    } else ink, fontSize = if (large) 23.sp else 17.sp,
                     lineHeight = if (large) 34.sp else 26.sp)
             }
         }

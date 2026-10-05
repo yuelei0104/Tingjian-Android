@@ -5,6 +5,8 @@ import com.tingjian.app.network.AccountDeleteRequest
 import com.tingjian.app.network.AccountPasswordChangeRequest
 import com.tingjian.app.network.AccountProfileUpdateRequest
 import com.tingjian.app.network.AccountSessionResponse
+import com.tingjian.app.network.AccessibilityPreferenceResponse
+import com.tingjian.app.network.AccessibilityPreferenceUpdateRequest
 import com.tingjian.app.network.ActiveSessionResponse
 import com.tingjian.app.network.AuthTokenResponse
 import com.tingjian.app.network.AuthUserResponse
@@ -200,6 +202,14 @@ class TingjianRepository internal constructor(
     suspend fun updatePreferences(
         request: UserPreferenceUpdateRequest
     ): ApiResult<UserPreferenceResponse> = call { api.updatePreferences(request) }
+
+    suspend fun accessibilityPreferences(): ApiResult<AccessibilityPreferenceResponse> =
+        call { api.accessibilityPreferences() }
+
+    suspend fun updateAccessibilityPreferences(
+        request: AccessibilityPreferenceUpdateRequest
+    ): ApiResult<AccessibilityPreferenceResponse> =
+        call { api.updateAccessibilityPreferences(request) }
 
     suspend fun clearHistory(): ApiResult<PrivacyDeleteResponse> =
         call { api.clearHistory() }

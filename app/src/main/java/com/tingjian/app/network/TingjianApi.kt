@@ -160,6 +160,14 @@ interface TingjianApi {
         @Body request: UserPreferenceUpdateRequest
     ): ApiEnvelope<UserPreferenceResponse>
 
+    @GET("api/v1/accessibility/preferences")
+    suspend fun accessibilityPreferences(): ApiEnvelope<AccessibilityPreferenceResponse>
+
+    @PUT("api/v1/accessibility/preferences")
+    suspend fun updateAccessibilityPreferences(
+        @Body request: AccessibilityPreferenceUpdateRequest
+    ): ApiEnvelope<AccessibilityPreferenceResponse>
+
     @DELETE("api/v1/privacy/history")
     suspend fun clearHistory(): ApiEnvelope<PrivacyDeleteResponse>
 

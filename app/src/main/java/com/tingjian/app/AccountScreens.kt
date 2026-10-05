@@ -143,6 +143,33 @@ internal fun UsageScreen(
     }
 }
 
+@Composable
+private fun PreferenceSwitch(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        color = white,
+        shape = RoundedCornerShape(17.dp),
+        border = BorderStroke(1.dp, divider),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(17.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = ink, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(5.dp))
+                Text(subtitle, color = secondary, fontSize = 12.sp, lineHeight = 18.sp)
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        }
+    }
+}
+
 private fun formatUsageValue(code: String, value: Long, unit: String): String =
     if (code == "CAPTION_SECONDS") {
         if (value >= 60) "${value / 60} 分钟" else "$value 秒"
@@ -313,6 +340,11 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     recognitionLanguage: String, onLanguageChange: (String) -> Unit,
     keywordVibration: Boolean, onKeywordVibrationChange: (Boolean) -> Unit,
     keywordHighlight: Boolean, onKeywordHighlightChange: (Boolean) -> Unit,
+    highContrast: Boolean, onHighContrastChange: (Boolean) -> Unit,
+    visualAlerts: Boolean, onVisualAlertsChange: (Boolean) -> Unit,
+    systemNotifications: Boolean, onSystemNotificationsChange: (Boolean) -> Unit,
+    strongVibration: Boolean, onStrongVibrationChange: (Boolean) -> Unit,
+    captionFollow: Boolean, onCaptionFollowChange: (Boolean) -> Unit,
     terms: SnapshotStateList<GlossaryTerm>, quickPhrases: SnapshotStateList<QuickPhrase>,
     onTermsChanged: () -> Unit, onQuickPhrasesChanged: () -> Unit,
     autoSummary: Boolean, onAutoSummaryChange: (Boolean) -> Unit,
@@ -855,6 +887,43 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
             }
         }
         Spacer(Modifier.height(10.dp))
+        Text("无障碍提醒", color = ink, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        PreferenceSwitch(
+            title = "高对比度字幕",
+            subtitle = "增强字幕气泡、边框和关键词提醒的明暗对比",
+            checked = highContrast,
+            onCheckedChange = onHighContrastChange
+        )
+        Spacer(Modifier.height(10.dp))
+        PreferenceSwitch(
+            title = "视觉提醒",
+            subtitle = "命中关键词时在字幕页显示醒目的提示条",
+            checked = visualAlerts,
+            onCheckedChange = onVisualAlertsChange
+        )
+        Spacer(Modifier.height(10.dp))
+        PreferenceSwitch(
+            title = "系统通知",
+            subtitle = "应用在前台或后台时提醒关键词与连接中断",
+            checked = systemNotifications,
+            onCheckedChange = onSystemNotificationsChange
+        )
+        Spacer(Modifier.height(10.dp))
+        PreferenceSwitch(
+            title = "增强振动",
+            subtitle = "关键词提醒使用更长的双段振动节奏",
+            checked = strongVibration,
+            onCheckedChange = onStrongVibrationChange
+        )
+        Spacer(Modifier.height(10.dp))
+        PreferenceSwitch(
+            title = "默认跟随字幕",
+            subtitle = "进入字幕页后自动滚动到最新识别内容",
+            checked = captionFollow,
+            onCheckedChange = onCaptionFollowChange
+        )
+        Spacer(Modifier.height(18.dp))
         Surface(color = white, shape = RoundedCornerShape(17.dp),
             border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
             Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {

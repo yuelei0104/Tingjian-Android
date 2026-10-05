@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -52,6 +53,7 @@ import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.network.UserPreferenceUpdateRequest
 import com.tingjian.app.network.AccountSessionResponse
+import com.tingjian.app.network.AccessibilityPreferenceUpdateRequest
 import com.tingjian.app.data.ApiResult
 import com.tingjian.app.data.LiveSessionDraft
 import com.tingjian.app.data.LiveSessionDraftStore
@@ -114,6 +116,21 @@ private fun TingjianApp() {
     var recognitionLanguage by remember {
         mutableStateOf(preferences.getString("recognition_language", "中英混合") ?: "中英混合")
     }
+    var highContrast by remember {
+        mutableStateOf(preferences.getBoolean("accessibility_high_contrast", false))
+    }
+    var visualAlerts by remember {
+        mutableStateOf(preferences.getBoolean("accessibility_visual_alerts", true))
+    }
+    var systemNotifications by remember {
+        mutableStateOf(preferences.getBoolean("accessibility_notifications", false))
+    }
+    var strongVibration by remember {
+        mutableStateOf(preferences.getBoolean("accessibility_strong_vibration", false))
+    }
+    var captionFollow by remember {
+        mutableStateOf(preferences.getBoolean("accessibility_caption_follow", true))
+    }
     val savedRecords = remember { mutableStateListOf<Conversation>().also {
         it.addAll(loadConversations(preferences))
     } }
@@ -135,6 +152,20 @@ private fun TingjianApp() {
     var preferenceVersion by remember { mutableIntStateOf(0) }
     var preferenceSyncRunning by remember { mutableStateOf(false) }
     var preferenceSyncError by remember { mutableStateOf("") }
+    var accessibilityVersion by remember { mutableIntStateOf(0) }
+    var accessibilitySyncRunning by remember { mutableStateOf(false) }
+    var accessibilitySyncError by remember { mutableStateOf("") }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            systemNotifications = false
+            preferences.edit()
+                .putBoolean("accessibility_notifications", false)
+                .apply()
+            if (demoLoggedIn) accessibilityVersion++
+        }
+    }
     var knownGlossaryIds by remember { mutableStateOf(emptySet<String>()) }
     var knownQuickPhraseIds by remember { mutableStateOf(emptySet<String>()) }
     var homeDashboard by remember { mutableStateOf<HomeDashboard?>(null) }
@@ -431,6 +462,103 @@ private fun TingjianApp() {
             .remove("preference_sync_owner")
             .apply()
         preferenceSyncError = ""
+    }
+
+    fun saveAccessibilityPreferences() {
+        preferences.edit()
+            .putBoolean("accessibility_high_contrast", highContrast)
+            .putBoolean("accessibility_visual_alerts", visualAlerts)
+            .putBoolean("accessibility_notifications", systemNotifications)
+            .putBoolean("accessibility_strong_vibration", strongVibration)
+            .putBoolean("accessibility_caption_follow", captionFollow)
+            .apply()
+    }
+
+    fun markAccessibilityChanged() {
+        saveAccessibilityPreferences()
+        if (demoLoggedIn) {
+            preferences.edit()
+                .putBoolean("accessibility_sync_pending", true)
+                .putString("accessibility_sync_owner", repository.email().orEmpty())
+                .apply()
+            accessibilityVersion++
+        }
+    }
+
+    suspend fun syncAccessibility(showSuccess: Boolean = false) {
+        if (!demoLoggedIn || accessibilitySyncRunning) return
+        accessibilitySyncRunning = true
+        while (demoLoggedIn) {
+            val versionAtStart = accessibilityVersion
+            val request = AccessibilityPreferenceUpdateRequest(
+                highContrast, visualAlerts, systemNotifications,
+                strongVibration, captionFollow
+            )
+            when (val result = repository.updateAccessibilityPreferences(request)) {
+                is ApiResult.Success -> {
+                    if (versionAtStart != accessibilityVersion) continue
+                    preferences.edit()
+                        .putBoolean("accessibility_sync_pending", false)
+                        .putString("accessibility_sync_owner", repository.email().orEmpty())
+                        .apply()
+                    accessibilitySyncError = ""
+                    if (showSuccess) syncNotice = "无障碍设置已同步"
+                }
+                is ApiResult.Error -> {
+                    accessibilitySyncError = result.message
+                    if (showSuccess) syncNotice = "设置已保存在本机，云端同步失败"
+                }
+            }
+            break
+        }
+        accessibilitySyncRunning = false
+    }
+
+    suspend fun reloadAccessibility() {
+        if (!demoLoggedIn) return
+        val pendingForCurrentUser =
+            preferences.getBoolean("accessibility_sync_pending", false) &&
+                preferences.getString("accessibility_sync_owner", null) ==
+                repository.email().orEmpty()
+        if (pendingForCurrentUser) {
+            syncAccessibility()
+            return
+        }
+        when (val result = repository.accessibilityPreferences()) {
+            is ApiResult.Success -> {
+                val remote = result.value
+                if (!remote.configured) {
+                    syncAccessibility()
+                    return
+                }
+                highContrast = remote.highContrast
+                visualAlerts = remote.visualAlerts
+                systemNotifications = remote.systemNotifications
+                strongVibration = remote.strongVibration
+                captionFollow = remote.captionFollow
+                saveAccessibilityPreferences()
+                preferences.edit()
+                    .putBoolean("accessibility_sync_pending", false)
+                    .putString("accessibility_sync_owner", repository.email().orEmpty())
+                    .apply()
+                accessibilitySyncError = ""
+            }
+            is ApiResult.Error -> accessibilitySyncError = result.message
+        }
+    }
+
+    fun resetAccessibilityPreferences() {
+        highContrast = false
+        visualAlerts = true
+        systemNotifications = false
+        strongVibration = false
+        captionFollow = true
+        saveAccessibilityPreferences()
+        preferences.edit()
+            .putBoolean("accessibility_sync_pending", false)
+            .remove("accessibility_sync_owner")
+            .apply()
+        accessibilitySyncError = ""
     }
 
     fun updateLocalConversation(
@@ -817,6 +945,7 @@ private fun TingjianApp() {
             refreshPendingMessageCount()
             repository.accountProfile()
             reloadPreferences()
+            reloadAccessibility()
             reloadHome()
             reloadRemoteHistory()
             reloadPersonalization()
@@ -850,6 +979,8 @@ private fun TingjianApp() {
             knownQuickPhraseIds = emptySet()
             preferenceSyncRunning = false
             preferenceSyncError = ""
+            accessibilitySyncRunning = false
+            accessibilitySyncError = ""
             realtimeState = RealtimeMessageClient.State.DISCONNECTED
             pendingMessageCount = 0
         }
@@ -936,12 +1067,25 @@ private fun TingjianApp() {
                 pendingOwner == repository.email().orEmpty()) {
                 syncPreferences()
             }
+            val accessibilityOwner = preferences.getString(
+                "accessibility_sync_owner", null
+            )
+            if (preferences.getBoolean("accessibility_sync_pending", false) &&
+                accessibilityOwner == repository.email().orEmpty()) {
+                syncAccessibility()
+            }
         }
     }
     LaunchedEffect(preferenceVersion) {
         if (preferenceVersion > 0 && demoLoggedIn) {
             delay(400)
             syncPreferences()
+        }
+    }
+    LaunchedEffect(accessibilityVersion) {
+        if (accessibilityVersion > 0 && demoLoggedIn) {
+            delay(400)
+            syncAccessibility()
         }
     }
     LaunchedEffect(personalizationVersion) {
@@ -1025,7 +1169,8 @@ private fun TingjianApp() {
             }
         )
     }
-    Scaffold(containerColor = canvas, snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
+    Scaffold(containerColor = if (highContrast) Color.White else canvas,
+        snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
         if (!showLogin && !showUsage && !showAccountSessions && selected == null &&
             !keyboardVisible) BottomTabs(tab) {
             if (it == 1 && sessionStartedAt == 0L) {
@@ -1077,7 +1222,7 @@ private fun TingjianApp() {
                     tab = 3
                 })
             } else if (record != null) {
-                DetailScreen(record, large, autoSummary,
+                DetailScreen(record, large, highContrast, autoSummary,
                     if (keywordHighlight) enabledKeywords(glossaryTerms) else emptyList(),
                     loading = detailLoading, loadError = detailError,
                     onRetry = { openConversation(record) },
@@ -1185,6 +1330,11 @@ private fun TingjianApp() {
                         .filter { it.enabled }.map { it.phrase }).distinct(),
                     keywordVibration = keywordVibration,
                     keywordHighlight = keywordHighlight,
+                    highContrast = highContrast,
+                    visualAlerts = visualAlerts,
+                    systemNotifications = systemNotifications,
+                    strongVibration = strongVibration,
+                    captionFollow = captionFollow,
                     quickPhrases = quickPhrases.filter { it.enabled },
                     sessionStartedAt = sessionStartedAt,
                     cloudSyncState = when {
@@ -1302,11 +1452,13 @@ private fun TingjianApp() {
                     accountName = repository.displayName(), accountEmail = repository.email(),
                     remoteCount = homeDashboard?.conversationCount ?: historyTotal,
                     dataActionRunning = dataActionRunning || conversationSyncRunning ||
-                        preferenceSyncRunning,
+                        preferenceSyncRunning || accessibilitySyncRunning,
                     pendingSyncCount = pendingSyncCount,
                     syncRunning = conversationSyncRunning,
-                    preferenceSyncRunning = preferenceSyncRunning,
-                    preferenceSyncError = preferenceSyncError,
+                    preferenceSyncRunning = preferenceSyncRunning || accessibilitySyncRunning,
+                    preferenceSyncError = preferenceSyncError.ifBlank {
+                        accessibilitySyncError
+                    },
                     onLogin = { showLogin = true },
                     onRetrySync = {
                         if (demoLoggedIn) scope.launch {
@@ -1316,6 +1468,7 @@ private fun TingjianApp() {
                     onRetryPreferenceSync = {
                         if (demoLoggedIn) scope.launch {
                             syncPreferences(showSuccess = true)
+                            syncAccessibility(showSuccess = true)
                         }
                     },
                     onLogout = {
@@ -1378,6 +1531,7 @@ private fun TingjianApp() {
                                     clearLocalHistory()
                                     clearLocalPersonalization()
                                     resetLocalPreferences()
+                                    resetAccessibilityPreferences()
                                     clearRealtimeOutbox()
                                     clearLiveDraft()
                                     liveLines.clear()
@@ -1402,6 +1556,7 @@ private fun TingjianApp() {
                                     clearLocalHistory()
                                     clearLocalPersonalization()
                                     resetLocalPreferences()
+                                    resetAccessibilityPreferences()
                                     clearRealtimeOutbox(ownerEmail)
                                     clearLiveDraft(draftOwnerKey(ownerEmail))
                                     liveLines.clear()
@@ -1493,6 +1648,33 @@ private fun TingjianApp() {
                     onKeywordHighlightChange = {
                         keywordHighlight = it
                         markPreferenceChanged()
+                    }, highContrast = highContrast,
+                    onHighContrastChange = {
+                        highContrast = it
+                        markAccessibilityChanged()
+                    }, visualAlerts = visualAlerts,
+                    onVisualAlertsChange = {
+                        visualAlerts = it
+                        markAccessibilityChanged()
+                    }, systemNotifications = systemNotifications,
+                    onSystemNotificationsChange = {
+                        systemNotifications = it
+                        if (it && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                            PackageManager.PERMISSION_GRANTED) {
+                            notificationPermissionLauncher.launch(
+                                Manifest.permission.POST_NOTIFICATIONS
+                            )
+                        }
+                        markAccessibilityChanged()
+                    }, strongVibration = strongVibration,
+                    onStrongVibrationChange = {
+                        strongVibration = it
+                        markAccessibilityChanged()
+                    }, captionFollow = captionFollow,
+                    onCaptionFollowChange = {
+                        captionFollow = it
+                        markAccessibilityChanged()
                     }, terms = glossaryTerms, quickPhrases = quickPhrases,
                     onTermsChanged = {
                         saveTerms(preferences, glossaryTerms)

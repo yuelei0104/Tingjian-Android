@@ -246,7 +246,26 @@ data class PrivacyExportResponse(
     val keywords: List<KeywordResponse>,
     val glossaryTerms: List<GlossaryResponse>,
     val quickPhrases: List<QuickPhraseResponse>,
-    val preferences: UserPreferenceResponse
+    val preferences: UserPreferenceResponse,
+    val accessibility: AccessibilityPreferenceResponse
+)
+
+data class AccessibilityPreferenceResponse(
+    val configured: Boolean,
+    val highContrast: Boolean,
+    val visualAlerts: Boolean,
+    val systemNotifications: Boolean,
+    val strongVibration: Boolean,
+    val captionFollow: Boolean,
+    val updatedAt: String?
+)
+
+data class AccessibilityPreferenceUpdateRequest(
+    val highContrast: Boolean,
+    val visualAlerts: Boolean,
+    val systemNotifications: Boolean,
+    val strongVibration: Boolean,
+    val captionFollow: Boolean
 )
 
 data class UserPreferenceResponse(

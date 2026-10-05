@@ -166,7 +166,8 @@ internal fun HistoryScreen(records: List<Conversation>, loggedIn: Boolean, remot
 }
 
 @Composable
-internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boolean,
+internal fun DetailScreen(record: Conversation, large: Boolean, highContrast: Boolean,
+    autoSummary: Boolean,
     keywords: List<String>,
     loading: Boolean, loadError: String, onRetry: () -> Unit,
     actionRunning: Boolean, actionError: String,
@@ -268,7 +269,8 @@ internal fun DetailScreen(record: Conversation, large: Boolean, autoSummary: Boo
         }
         record.transcript.forEachIndexed { index, (speaker, content) ->
             ChatBubble(content, fromMe = speaker == "我", large = large,
-                speaker = "$speaker · 第 ${index + 1} 条", keywords = keywords)
+                speaker = "$speaker · 第 ${index + 1} 条", keywords = keywords,
+                highContrast = highContrast)
             Spacer(Modifier.height(12.dp))
         }
         Spacer(Modifier.height(8.dp))

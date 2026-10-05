@@ -9,9 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -44,6 +41,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,12 +66,15 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     language: String, onLanguageChange: (String) -> Unit, voiceMode: String,
     voiceStyle: String, ttsSpeed: Float, keywords: List<String>,
     keywordVibration: Boolean, keywordHighlight: Boolean,
+    highContrast: Boolean, visualAlerts: Boolean, systemNotifications: Boolean,
+    strongVibration: Boolean, captionFollow: Boolean,
     quickPhrases: List<QuickPhrase>, sessionStartedAt: Long,
     cloudSyncState: String, pendingMessageCount: Int,
     onRetryCloudSync: () -> Unit,
     onLineAdded: (ChatLine, Int) -> Unit,
     onFinish: () -> Unit) {
     val context = LocalContext.current
+    val accessibilityFeedback = remember { AccessibilityFeedback(context) }
     var reply by remember { mutableStateOf("") }
     var confirmFinish by remember { mutableStateOf(false) }
     var quickOpen by remember { mutableStateOf(false) }
@@ -100,10 +103,18 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     var permissionDenied by remember { mutableStateOf(false) }
     var connectionState by remember { mutableStateOf("已连接") }
     var keywordNotice by remember { mutableStateOf("") }
-    var autoScroll by remember { mutableStateOf(true) }
+    var autoScroll by remember(captionFollow) { mutableStateOf(captionFollow) }
+    var previousCloudSyncState by remember { mutableStateOf(cloudSyncState) }
     val keywordCooldown = remember { mutableMapOf<String, Long>() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(cloudSyncState, systemNotifications) {
+        if (previousCloudSyncState == "已连接" && cloudSyncState != "已连接") {
+            accessibilityFeedback.connectionLost(systemNotifications)
+        }
+        previousCloudSyncState = cloudSyncState
+    }
 
     LaunchedEffect(sessionStartedAt, paused) {
         while (true) {
@@ -326,23 +337,16 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                         connectionState = "已连接"
                         val hit = keywords.firstOrNull { recognized.contains(it, ignoreCase = true) }
                         if (hit != null) {
-                            keywordNotice = "关键词提醒：$hit"
+                            keywordNotice = if (visualAlerts) "关键词提醒：$hit" else ""
                             val now = System.currentTimeMillis()
                             val last = keywordCooldown[hit] ?: 0L
-                            if (keywordVibration && now - last >= 10_000L) {
-                                val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    context.getSystemService(VibratorManager::class.java).defaultVibrator
-                                } else {
-                                    @Suppress("DEPRECATION")
-                                    context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                                }
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                    vibrator.vibrate(VibrationEffect.createOneShot(100,
-                                        VibrationEffect.DEFAULT_AMPLITUDE))
-                                } else {
-                                    @Suppress("DEPRECATION")
-                                    vibrator.vibrate(100)
-                                }
+                            if (now - last >= 10_000L) {
+                                accessibilityFeedback.keyword(
+                                    keyword = hit,
+                                    vibrationEnabled = keywordVibration,
+                                    strongVibration = strongVibration,
+                                    notificationEnabled = systemNotifications
+                                )
                                 keywordCooldown[hit] = now
                             }
                         }
@@ -495,7 +499,8 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
         if (autoScroll) scroll.animateScrollTo(scroll.maxValue)
     }
 
-    Column(Modifier.fillMaxSize().imePadding().background(canvas)) {
+    Column(Modifier.fillMaxSize().imePadding()
+        .background(if (highContrast) Color.White else canvas)) {
         Column(Modifier.fillMaxWidth().background(white)
             .padding(horizontal = 20.dp, vertical = 13.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -528,7 +533,9 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("$connectionState · ${if (paused) "已暂停识别" else status}", color = teal,
                     fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
+                    modifier = Modifier.weight(1f).semantics {
+                        liveRegion = LiveRegionMode.Polite
+                    })
                 if (connectionState != "已连接") {
                     TextButton(onClick = {
                         connectionState = "已连接"
@@ -557,8 +564,12 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (keywordNotice.isNotEmpty()) {
-                    Text(keywordNotice, color = ink, fontSize = 12.sp,
-                        modifier = Modifier.weight(1f).background(Color(0xFFFFF2C7),
+                    Text(keywordNotice,
+                        color = if (highContrast) Color.Black else ink,
+                        fontSize = if (large) 16.sp else 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f).background(
+                            if (highContrast) Color(0xFFFFFF00) else Color(0xFFFFF2C7),
                             RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 5.dp))
                 } else Spacer(Modifier.weight(1f))
                 TextButton(onClick = { autoScroll = !autoScroll }) {
@@ -589,11 +600,13 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
             lines.forEach { line ->
                 ChatBubble(line.content, line.fromMe, large,
                     onReplay = if (line.fromMe) ({ playText(line.content) }) else null,
-                    keywords = if (keywordHighlight) keywords else emptyList())
+                    keywords = if (keywordHighlight) keywords else emptyList(),
+                    highContrast = highContrast)
                 Spacer(Modifier.height(12.dp))
             }
             if (partial.isNotBlank()) {
-                ChatBubble(partial, fromMe = false, large = large, inProgress = true)
+                ChatBubble(partial, fromMe = false, large = large, inProgress = true,
+                    highContrast = highContrast)
                 Spacer(Modifier.height(12.dp))
             }
             if (showServiceHelp) {
