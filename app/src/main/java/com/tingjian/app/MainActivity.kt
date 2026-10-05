@@ -53,8 +53,11 @@ import com.tingjian.app.network.QuickPhraseUpsertRequest
 import com.tingjian.app.network.UserPreferenceUpdateRequest
 import com.tingjian.app.network.AccountSessionResponse
 import com.tingjian.app.data.ApiResult
+import com.tingjian.app.data.LiveSessionDraft
+import com.tingjian.app.data.LiveSessionDraftStore
 import com.tingjian.app.data.PendingMessageStore
 import com.tingjian.app.data.PendingRealtimeMessage
+import com.tingjian.app.data.draftOwnerKey
 import com.tingjian.app.data.resumeIndexFor
 import com.tingjian.app.data.toDashboard
 import com.tingjian.app.data.toUsageDashboard
@@ -88,6 +91,7 @@ private fun TingjianApp() {
     val repository = remember { NetworkModule.repository }
     val realtimeClient = remember { NetworkModule.realtimeClient }
     val pendingMessageStore = remember { PendingMessageStore(context) }
+    val liveDraftStore = remember { LiveSessionDraftStore(context) }
     val preferences = remember { context.getSharedPreferences("tingjian_display", android.content.Context.MODE_PRIVATE) }
     var entered by remember { mutableStateOf(preferences.getBoolean("welcome_completed", false)) }
     var tab by remember { mutableIntStateOf(0) }
@@ -167,6 +171,8 @@ private fun TingjianApp() {
     var realtimeFlushVersion by remember { mutableIntStateOf(0) }
     var pendingMessageCount by remember { mutableIntStateOf(0) }
     var activeLastSequence by remember { mutableLongStateOf(0L) }
+    var realtimeRecoveryRunning by remember { mutableStateOf(false) }
+    var pendingLiveDraft by remember { mutableStateOf<LiveSessionDraft?>(null) }
     val currentActiveSessionId by rememberUpdatedState(activeSessionId)
     val snackbarHostState = remember { SnackbarHostState() }
     val pendingServerIds = savedRecords.filter { it.syncPending }
@@ -204,33 +210,57 @@ private fun TingjianApp() {
         refreshPendingMessageCount()
     }
 
+    fun persistLiveDraft() {
+        if (sessionStartedAt <= 0L) return
+        liveDraftStore.save(LiveSessionDraft(
+            ownerKey = draftOwnerKey(repository.email()),
+            startedAt = sessionStartedAt,
+            scene = scene,
+            serverId = activeSessionId,
+            lines = liveLines.toList(),
+            lastSequence = activeLastSequence
+        ))
+    }
+
+    fun clearLiveDraft(ownerKey: String = draftOwnerKey(repository.email())) {
+        liveDraftStore.clear(ownerKey)
+        if (pendingLiveDraft?.ownerKey == ownerKey) pendingLiveDraft = null
+    }
+
     suspend fun recoverRealtimeSession() {
+        if (realtimeRecoveryRunning) return
         val sessionId = activeSessionId ?: return
-        var cursor = activeLastSequence
-        do {
-            when (val result = repository.sessionMessages(sessionId, cursor, 100)) {
-                is ApiResult.Success -> {
-                    val localClientIds = liveLines.indices
-                        .map { messageClientId(sessionStartedAt, it) }.toSet()
-                    result.value.items.forEach { message ->
-                        if (message.sequence > activeLastSequence &&
-                            message.clientMessageId !in localClientIds) {
-                            liveLines.add(ChatLine(
-                                content = message.content,
-                                fromMe = message.speaker == "SELF"
-                            ))
+        realtimeRecoveryRunning = true
+        try {
+            var cursor = activeLastSequence
+            do {
+                when (val result = repository.sessionMessages(sessionId, cursor, 100)) {
+                    is ApiResult.Success -> {
+                        val localClientIds = liveLines.indices
+                            .map { messageClientId(sessionStartedAt, it) }.toSet()
+                        result.value.items.forEach { message ->
+                            if (message.sequence > activeLastSequence &&
+                                message.clientMessageId !in localClientIds) {
+                                liveLines.add(ChatLine(
+                                    content = message.content,
+                                    fromMe = message.speaker == "SELF"
+                                ))
+                            }
+                            activeLastSequence = maxOf(activeLastSequence, message.sequence)
                         }
-                        activeLastSequence = maxOf(activeLastSequence, message.sequence)
+                        cursor = result.value.nextAfterSequence
+                        persistLiveDraft()
+                        if (!result.value.hasNext) return
                     }
-                    cursor = result.value.nextAfterSequence
-                    if (!result.value.hasNext) return
+                    is ApiResult.Error -> {
+                        syncNotice = "实时会话恢复失败：${result.message}"
+                        return
+                    }
                 }
-                is ApiResult.Error -> {
-                    syncNotice = "实时会话恢复失败：${result.message}"
-                    return
-                }
-            }
-        } while (true)
+            } while (true)
+        } finally {
+            realtimeRecoveryRunning = false
+        }
     }
 
     suspend fun reloadRemoteHistory(keyword: String = "", append: Boolean = false) {
@@ -660,6 +690,7 @@ private fun TingjianApp() {
                 is ApiResult.Success -> {
                     activeLastSequence = 0L
                     activeSessionId = result.value.id
+                    persistLiveDraft()
                     syncNotice = ""
                 }
                 is ApiResult.Error -> syncNotice = "服务端会话创建失败，本次内容仍会保存在本机"
@@ -745,6 +776,42 @@ private fun TingjianApp() {
         saveQuickPhrases(preferences, quickPhrases)
     }
 
+    LaunchedEffect(demoLoggedIn, repository.email()) {
+        if (sessionStartedAt > 0L || liveLines.isNotEmpty() || pendingLiveDraft != null) {
+            return@LaunchedEffect
+        }
+        val ownerKey = draftOwnerKey(repository.email())
+        val localDraft = liveDraftStore.load(ownerKey)
+        if (localDraft != null) {
+            pendingLiveDraft = localDraft
+            return@LaunchedEffect
+        }
+        if (!demoLoggedIn) return@LaunchedEffect
+        when (val result = repository.activeSession()) {
+            is ApiResult.Success -> {
+                val detail = result.value.session
+                if (result.value.available && detail != null &&
+                    detail.status == "ACTIVE") {
+                    val recoveredScene = when {
+                        detail.title.contains("课堂") -> "课堂"
+                        detail.title.contains("会议") -> "会议"
+                        detail.title.contains("就医") -> "就医"
+                        else -> "日常"
+                    }
+                    pendingLiveDraft = LiveSessionDraft(
+                        ownerKey = ownerKey,
+                        startedAt = System.currentTimeMillis(),
+                        scene = recoveredScene,
+                        serverId = detail.id,
+                        lines = emptyList(),
+                        lastSequence = 0L
+                    )
+                }
+            }
+            is ApiResult.Error -> Unit
+        }
+    }
+
     LaunchedEffect(demoLoggedIn) {
         if (demoLoggedIn) {
             refreshPendingMessageCount()
@@ -813,6 +880,7 @@ private fun TingjianApp() {
                                             fromMe = message.speaker == "SELF"
                                         ))
                                         activeLastSequence = message.sequence
+                                        persistLiveDraft()
                                     }
                                     message.sequence > activeLastSequence + 1L ->
                                         scope.launch { recoverRealtimeSession() }
@@ -909,11 +977,60 @@ private fun TingjianApp() {
         }
         return
     }
+    pendingLiveDraft?.let { draft ->
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("发现未结束的会话") },
+            text = {
+                Text(if (draft.lines.isEmpty()) {
+                    "上次会话还没有结束，可以继续使用同一个会话。"
+                } else {
+                    "已恢复 ${draft.lines.size} 条字幕。继续后会自动补齐云端消息。"
+                })
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    liveLines.clear()
+                    liveLines.addAll(draft.lines)
+                    sessionStartedAt = draft.startedAt
+                    scene = draft.scene
+                    activeSessionId = draft.serverId
+                    activeLastSequence = draft.lastSequence
+                    pendingLiveDraft = null
+                    liveDraftStore.save(draft)
+                    if (demoLoggedIn && draft.serverId == null) {
+                        createRemoteSession(
+                            if (scene == "日常") "面对面会话" else "$scene · 会话"
+                        )
+                    } else if (demoLoggedIn && draft.serverId != null) {
+                        scope.launch { recoverRealtimeSession() }
+                    }
+                    tab = 1
+                    syncNotice = "已恢复上次未结束的会话"
+                }) { Text("继续会话", color = teal) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    pendingLiveDraft = null
+                    liveDraftStore.clear(draft.ownerKey)
+                    draft.serverId?.let { serverId ->
+                        pendingMessageStore.removeSession(serverId)
+                        refreshPendingMessageCount()
+                        if (demoLoggedIn) scope.launch {
+                            repository.endSession(serverId)
+                        }
+                    }
+                    syncNotice = "已放弃未结束的会话"
+                }) { Text("放弃会话", color = secondary) }
+            }
+        )
+    }
     Scaffold(containerColor = canvas, snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
         if (!showLogin && !showUsage && !showAccountSessions && selected == null &&
             !keyboardVisible) BottomTabs(tab) {
             if (it == 1 && sessionStartedAt == 0L) {
                 sessionStartedAt = System.currentTimeMillis()
+                persistLiveDraft()
                 createRemoteSession(if (scene == "日常") "面对面会话" else "$scene · 会话")
             }
             tab = it
@@ -1041,11 +1158,13 @@ private fun TingjianApp() {
                 0 -> HomeScreen(allRecords, homeDashboard, homeRefreshing, homeError,
                     liveLines.isNotEmpty(), demoLoggedIn, onNew = {
                     if (sessionStartedAt == 0L) sessionStartedAt = System.currentTimeMillis()
+                    persistLiveDraft()
                     createRemoteSession("面对面会话")
                     tab = 1
                 }, onScene = { chosen ->
                     if (liveLines.isEmpty()) scene = chosen
                     if (sessionStartedAt == 0L) sessionStartedAt = System.currentTimeMillis()
+                    persistLiveDraft()
                     createRemoteSession(if (chosen == "日常") "面对面会话" else "$chosen · 会话")
                     tab = 1
                 }, onHistory = { tab = 2 }, onUsage = { showUsage = true },
@@ -1083,6 +1202,7 @@ private fun TingjianApp() {
                         }
                     },
                     onLineAdded = { line, index ->
+                        persistLiveDraft()
                         val localConversationId = sessionStartedAt
                         if (demoLoggedIn) scope.launch {
                             while (remoteSessionCreating) delay(50)
@@ -1110,6 +1230,7 @@ private fun TingjianApp() {
                 },
                     onFinish = {
                     val now = System.currentTimeMillis()
+                    val completedDraftOwner = draftOwnerKey(repository.email())
                     val completedStart = if (sessionStartedAt == 0L) now else sessionStartedAt
                     val completedLines = liveLines.toList()
                     val completedSessionId = activeSessionId
@@ -1144,7 +1265,14 @@ private fun TingjianApp() {
                             remoteSessionCreating = false
                             syncPendingConversations()
                         }
+                    } else if (demoLoggedIn && completedSessionId != null) {
+                        scope.launch {
+                            repository.endSession(completedSessionId)
+                            pendingMessageStore.removeSession(completedSessionId)
+                            refreshPendingMessageCount()
+                        }
                     }
+                    clearLiveDraft(completedDraftOwner)
                     liveLines.clear()
                     sessionStartedAt = 0L
                     if (!demoLoggedIn || completedLines.isEmpty()) {
@@ -1194,8 +1322,15 @@ private fun TingjianApp() {
                         if (!dataActionRunning) scope.launch {
                             dataActionRunning = true
                             val ownerEmail = repository.email().orEmpty()
+                            val ownerKey = draftOwnerKey(ownerEmail)
+                            activeSessionId?.let { repository.endSession(it) }
                             val result = repository.logout()
                             clearRealtimeOutbox(ownerEmail)
+                            clearLiveDraft(ownerKey)
+                            liveLines.clear()
+                            sessionStartedAt = 0L
+                            activeSessionId = null
+                            activeLastSequence = 0L
                             dataActionRunning = false
                             demoLoggedIn = false
                             if (result is ApiResult.Error) {
@@ -1222,6 +1357,11 @@ private fun TingjianApp() {
                             )) {
                                 is ApiResult.Success -> {
                                     clearRealtimeOutbox(ownerEmail)
+                                    clearLiveDraft(draftOwnerKey(ownerEmail))
+                                    liveLines.clear()
+                                    sessionStartedAt = 0L
+                                    activeSessionId = null
+                                    activeLastSequence = 0L
                                     demoLoggedIn = false
                                     syncNotice = "密码已修改，请使用新密码重新登录"
                                 }
@@ -1239,8 +1379,11 @@ private fun TingjianApp() {
                                     clearLocalPersonalization()
                                     resetLocalPreferences()
                                     clearRealtimeOutbox()
+                                    clearLiveDraft()
                                     liveLines.clear()
                                     sessionStartedAt = 0L
+                                    activeSessionId = null
+                                    activeLastSequence = 0L
                                     repository.logout()
                                     demoLoggedIn = false
                                     syncNotice = "账户数据已清除"
@@ -1260,6 +1403,7 @@ private fun TingjianApp() {
                                     clearLocalPersonalization()
                                     resetLocalPreferences()
                                     clearRealtimeOutbox(ownerEmail)
+                                    clearLiveDraft(draftOwnerKey(ownerEmail))
                                     liveLines.clear()
                                     sessionStartedAt = 0L
                                     activeSessionId = null

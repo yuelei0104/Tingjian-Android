@@ -61,6 +61,9 @@ interface TingjianApi {
         @Query("size") size: Int = 20
     ): ApiEnvelope<List<SessionResponse>>
 
+    @GET("api/v1/sessions/active")
+    suspend fun activeSession(): ApiEnvelope<ActiveSessionResponse>
+
     @GET("api/v1/sessions/{id}")
     suspend fun session(@Path("id") id: String): ApiEnvelope<SessionDetailResponse>
 

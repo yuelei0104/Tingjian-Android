@@ -5,6 +5,7 @@ import com.tingjian.app.network.AccountDeleteRequest
 import com.tingjian.app.network.AccountPasswordChangeRequest
 import com.tingjian.app.network.AccountProfileUpdateRequest
 import com.tingjian.app.network.AccountSessionResponse
+import com.tingjian.app.network.ActiveSessionResponse
 import com.tingjian.app.network.AuthTokenResponse
 import com.tingjian.app.network.AuthUserResponse
 import com.tingjian.app.network.GlossaryResponse
@@ -117,6 +118,9 @@ class TingjianRepository internal constructor(
 
     suspend fun sessions(page: Int = 0, size: Int = 20): ApiResult<List<SessionResponse>> =
         call { api.sessions(page, size) }
+
+    suspend fun activeSession(): ApiResult<ActiveSessionResponse> =
+        call { api.activeSession() }
 
     suspend fun session(id: String): ApiResult<SessionDetailResponse> =
         call { api.session(id) }

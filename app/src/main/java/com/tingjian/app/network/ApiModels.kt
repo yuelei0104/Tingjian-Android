@@ -101,6 +101,10 @@ data class SessionMessagePageResponse(
     val nextAfterSequence: Long,
     val hasNext: Boolean
 )
+data class ActiveSessionResponse(
+    val available: Boolean,
+    val session: SessionResponse?
+)
 
 data class RealtimeMessageRequest(
     val type: String = "MESSAGE",

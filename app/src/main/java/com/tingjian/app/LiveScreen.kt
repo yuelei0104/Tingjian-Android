@@ -503,8 +503,9 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Text(String.format(Locale.ROOT, "%02d:%02d", elapsedSeconds / 60,
                     elapsedSeconds % 60), color = secondary, fontSize = 12.sp)
-                TextButton(onClick = { confirmFinish = true }, enabled = lines.isNotEmpty()) {
-                    Text("结束并保存", color = if (lines.isNotEmpty()) teal else secondary,
+                val canFinish = lines.isNotEmpty() || sessionStartedAt > 0L
+                TextButton(onClick = { confirmFinish = true }, enabled = canFinish) {
+                    Text("结束并保存", color = if (canFinish) teal else secondary,
                         fontSize = 12.sp)
                 }
             }
