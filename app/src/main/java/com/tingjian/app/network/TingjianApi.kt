@@ -89,6 +89,11 @@ interface TingjianApi {
     @POST("api/v1/sessions/{id}/end")
     suspend fun endSession(@Path("id") id: String): ApiEnvelope<SessionResponse>
 
+    @POST("api/v1/ai/suggestions")
+    suspend fun aiSuggestion(
+        @Body request: AiSuggestionRequest
+    ): ApiEnvelope<AiSuggestionResponse>
+
     @GET("api/v1/history")
     suspend fun history(
         @Query("keyword") keyword: String = "",

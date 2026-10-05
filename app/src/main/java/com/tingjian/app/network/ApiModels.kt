@@ -106,6 +106,33 @@ data class ActiveSessionResponse(
     val session: SessionResponse?
 )
 
+data class AiContextMessageRequest(
+    val speaker: String,
+    val content: String
+)
+
+data class AiSuggestionRequest(
+    val clientRequestId: String,
+    val sessionId: String?,
+    val sourceText: String,
+    val action: String,
+    val language: String,
+    val context: List<AiContextMessageRequest>
+)
+
+data class AiSuggestionResponse(
+    val clientRequestId: String,
+    val suggestion: String,
+    val action: String,
+    val language: String,
+    val provider: String,
+    val fallback: Boolean,
+    val contextMessages: Int,
+    val inputCharacters: Int,
+    val outputCharacters: Int,
+    val createdAt: String
+)
+
 data class RealtimeMessageRequest(
     val type: String = "MESSAGE",
     val sessionId: String,

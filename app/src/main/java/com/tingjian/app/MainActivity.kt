@@ -1345,6 +1345,9 @@ private fun TingjianApp() {
                         else -> "离线排队"
                     },
                     pendingMessageCount = pendingMessageCount,
+                    aiLoggedIn = demoLoggedIn,
+                    aiSessionId = activeSessionId,
+                    onGenerateSuggestion = { request -> repository.aiSuggestion(request) },
                     onRetryCloudSync = {
                         if (demoLoggedIn) {
                             realtimeClient.reconnect()

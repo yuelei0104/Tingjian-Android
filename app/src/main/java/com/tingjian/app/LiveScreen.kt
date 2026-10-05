@@ -51,12 +51,18 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tingjian.app.ui.theme.TingjianTheme
+import com.tingjian.app.data.ApiResult
+import com.tingjian.app.network.AiSuggestionRequest
+import com.tingjian.app.network.AiSuggestionResponse
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
@@ -70,6 +76,8 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     strongVibration: Boolean, captionFollow: Boolean,
     quickPhrases: List<QuickPhrase>, sessionStartedAt: Long,
     cloudSyncState: String, pendingMessageCount: Int,
+    aiLoggedIn: Boolean, aiSessionId: String?,
+    onGenerateSuggestion: suspend (AiSuggestionRequest) -> ApiResult<AiSuggestionResponse>,
     onRetryCloudSync: () -> Unit,
     onLineAdded: (ChatLine, Int) -> Unit,
     onFinish: () -> Unit) {
@@ -81,6 +89,11 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     var assistOpen by remember { mutableStateOf(false) }
     var suggestion by remember { mutableStateOf("") }
     var previousReply by remember { mutableStateOf("") }
+    var assistLoading by remember { mutableStateOf(false) }
+    var assistError by remember { mutableStateOf("") }
+    var assistProvider by remember { mutableStateOf("") }
+    var lastAssistRequest by remember { mutableStateOf<AiSuggestionRequest?>(null) }
+    var assistJob by remember { mutableStateOf<Job?>(null) }
     var partial by remember { mutableStateOf("") }
     var status by remember { mutableStateOf("等待开始") }
     var listening by remember { mutableStateOf(false) }
@@ -108,6 +121,44 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     val keywordCooldown = remember { mutableMapOf<String, Long>() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
+
+    fun generateSuggestion(action: String, retryRequest: AiSuggestionRequest? = null) {
+        val request = retryRequest ?: AiSuggestionRequest(
+            clientRequestId = UUID.randomUUID().toString(),
+            sessionId = aiSessionId,
+            sourceText = reply.trim(),
+            action = action,
+            language = language,
+            context = buildAiContext(lines)
+        )
+        lastAssistRequest = request
+        assistJob?.cancel()
+        assistJob = scope.launch {
+            assistLoading = true
+            assistError = ""
+            assistProvider = ""
+            if (!aiLoggedIn) {
+                suggestion = localExpressionSuggestion(request.sourceText, request.action, request.context)
+                assistProvider = "本机模板"
+                assistError = "登录后可使用服务端表达助手；当前结果仅在本机生成。"
+                assistLoading = false
+                return@launch
+            }
+            when (val result = onGenerateSuggestion(request)) {
+                is ApiResult.Success -> {
+                    suggestion = result.value.suggestion
+                    assistProvider = if (result.value.fallback) "本机安全回退" else result.value.provider
+                }
+                is ApiResult.Error -> {
+                    suggestion = localExpressionSuggestion(request.sourceText, request.action, request.context)
+                    assistProvider = "本机安全回退"
+                    assistError = "${result.message}；已提供本机结果，可重试云端。"
+                }
+            }
+            assistLoading = false
+        }
+    }
 
     LaunchedEffect(cloudSyncState, systemNotifications) {
         if (previousCloudSyncState == "已连接" && cloudSyncState != "已连接") {
@@ -155,27 +206,47 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     }
 
     if (assistOpen) {
-        AlertDialog(onDismissRequest = { assistOpen = false },
-            title = { Text("表达助手 · 界面预览") },
+        AlertDialog(onDismissRequest = {
+            assistJob?.cancel()
+            assistLoading = false
+            assistOpen = false
+        },
+            title = { Text("表达助手") },
             text = {
                 Column(Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState())) {
-                    Text("当前使用本地模板预览完整交互，不会把输入发送到云端。" +
-                        "翻译仅支持原型示例句，正式版本需接入 AI 服务。",
+                    Text("选择处理方式后生成候选内容。采用建议只会填入输入框，不会自动发送或播报。",
                         color = secondary, fontSize = 13.sp, lineHeight = 20.sp)
                     Spacer(Modifier.height(12.dp))
-                    val source = reply.trim()
                     val choices = listOf(
-                        "更礼貌" to if (source.endsWith("谢谢。")) source else "$source 谢谢。",
-                        "更简洁" to source.substringBefore('，').substringBefore('。').plus("。"),
-                        "更正式" to "我已了解相关内容：$source",
-                        "译成中文" to if (source == "Okay, I will submit it on time.")
-                            "好的，我会按时提交。" else "仅支持原型示例句翻译",
-                        "译成英文" to if (source == "好的，我会按时提交。")
-                            "Okay, I will submit it on time." else "Only the prototype sentence is supported."
+                        "结合对话回复" to AiAction.REPLY,
+                        "更礼貌" to AiAction.POLITE,
+                        "更简洁" to AiAction.CONCISE,
+                        "更正式" to AiAction.FORMAL,
+                        "译成中文" to AiAction.TRANSLATE_ZH,
+                        "译成英文" to AiAction.TRANSLATE_EN
                     )
-                    choices.forEach { (label, candidate) ->
-                        OutlinedButton(onClick = { suggestion = candidate },
+                    choices.forEach { (label, action) ->
+                        OutlinedButton(onClick = { generateSuggestion(action) },
+                            enabled = !assistLoading,
                             modifier = Modifier.fillMaxWidth()) { Text(label) }
+                    }
+                    if (assistLoading) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                            verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(9.dp))
+                            Text("正在生成候选建议…", color = secondary, fontSize = 13.sp)
+                        }
+                    }
+                    if (assistError.isNotEmpty()) {
+                        Text(assistError, color = secondary, fontSize = 12.sp,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        TextButton(onClick = {
+                            lastAssistRequest?.let { generateSuggestion(it.action, it) }
+                        }, enabled = !assistLoading && lastAssistRequest != null) {
+                            Text("重试", color = teal)
+                        }
                     }
                     if (suggestion.isNotEmpty()) {
                         Spacer(Modifier.height(9.dp))
@@ -184,6 +255,10 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                                 Text("候选建议", color = teal, fontSize = 12.sp)
                                 Spacer(Modifier.height(5.dp))
                                 Text(suggestion, color = ink, fontSize = 14.sp)
+                                if (assistProvider.isNotEmpty()) {
+                                    Spacer(Modifier.height(5.dp))
+                                    Text("来源：$assistProvider", color = secondary, fontSize = 11.sp)
+                                }
                             }
                         }
                     }
@@ -195,13 +270,23 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     reply = suggestion
                     suggestion = ""
                     assistOpen = false
-                }, enabled = suggestion.isNotEmpty()) {
+                }, enabled = suggestion.isNotEmpty() && !assistLoading) {
                     Text("采用建议", color = teal)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { assistOpen = false; suggestion = "" }) {
-                    Text("关闭")
+                TextButton(onClick = {
+                    if (assistLoading) {
+                        assistJob?.cancel()
+                        assistLoading = false
+                        assistError = "已取消生成。"
+                    } else {
+                        assistOpen = false
+                        suggestion = ""
+                        assistError = ""
+                    }
+                }) {
+                    Text(if (assistLoading) "取消生成" else "关闭")
                 }
             })
     }
@@ -691,7 +776,13 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                 }
                 TextButton(onClick = {
                     if (reply.isBlank()) quickOpen = true
-                    else { suggestion = ""; assistOpen = true }
+                    else {
+                        suggestion = ""
+                        assistError = ""
+                        assistProvider = ""
+                        lastAssistRequest = null
+                        assistOpen = true
+                    }
                 }) {
                     Text(if (reply.isBlank()) "常用回复" else "表达助手",
                         color = teal, fontSize = 11.sp)

@@ -8,6 +8,8 @@ import com.tingjian.app.network.AccountSessionResponse
 import com.tingjian.app.network.AccessibilityPreferenceResponse
 import com.tingjian.app.network.AccessibilityPreferenceUpdateRequest
 import com.tingjian.app.network.ActiveSessionResponse
+import com.tingjian.app.network.AiSuggestionRequest
+import com.tingjian.app.network.AiSuggestionResponse
 import com.tingjian.app.network.AuthTokenResponse
 import com.tingjian.app.network.AuthUserResponse
 import com.tingjian.app.network.GlossaryResponse
@@ -149,6 +151,9 @@ class TingjianRepository internal constructor(
 
     suspend fun endSession(id: String): ApiResult<SessionResponse> =
         call { api.endSession(id) }
+
+    suspend fun aiSuggestion(request: AiSuggestionRequest): ApiResult<AiSuggestionResponse> =
+        call { api.aiSuggestion(request) }
 
     suspend fun history(
         keyword: String = "",
