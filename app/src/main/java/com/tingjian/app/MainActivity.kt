@@ -187,6 +187,10 @@ private fun TingjianApp() {
     var detailActionRunning by remember { mutableStateOf(false) }
     var detailActionError by remember { mutableStateOf("") }
     var detailSummary by remember { mutableStateOf("") }
+    var detailHighlights by remember { mutableStateOf(emptyList<String>()) }
+    var detailActionItems by remember { mutableStateOf(emptyList<String>()) }
+    var detailInsightKeywords by remember { mutableStateOf(emptyList<String>()) }
+    var detailTone by remember { mutableStateOf("暂无") }
     var detailSummaryLoading by remember { mutableStateOf(false) }
     var detailSummaryError by remember { mutableStateOf("") }
     var dataActionRunning by remember { mutableStateOf(false) }
@@ -834,6 +838,10 @@ private fun TingjianApp() {
         detailActionRunning = false
         detailActionError = ""
         detailSummary = ""
+        detailHighlights = emptyList()
+        detailActionItems = emptyList()
+        detailInsightKeywords = emptyList()
+        detailTone = "暂无"
         detailSummaryLoading = false
         detailSummaryError = ""
         val serverId = record.serverId ?: return
@@ -1229,6 +1237,10 @@ private fun TingjianApp() {
                     actionRunning = detailActionRunning || conversationSyncRunning,
                     actionError = detailActionError,
                     summary = detailSummary,
+                    highlights = detailHighlights,
+                    actionItems = detailActionItems,
+                    insightKeywords = detailInsightKeywords,
+                    tone = detailTone,
                     summaryLoading = detailSummaryLoading,
                     summaryError = detailSummaryError,
                     onSummarize = {
@@ -1237,11 +1249,25 @@ private fun TingjianApp() {
                             detailSummaryError = ""
                             val serverId = record.serverId
                             if (serverId == null || !demoLoggedIn) {
-                                detailSummary = if (record.transcript.isEmpty()) ""
-                                else localSummary(record)
+                                if (record.transcript.isEmpty()) {
+                                    detailSummary = ""
+                                } else {
+                                    val insight = localConversationInsight(record)
+                                    detailSummary = insight.summary
+                                    detailHighlights = insight.highlights
+                                    detailActionItems = insight.actionItems
+                                    detailInsightKeywords = insight.keywords
+                                    detailTone = insight.tone
+                                }
                             } else {
                                 when (val result = repository.summarizeHistory(serverId)) {
-                                    is ApiResult.Success -> detailSummary = result.value.summary
+                                    is ApiResult.Success -> {
+                                        detailSummary = result.value.summary
+                                        detailHighlights = result.value.highlights
+                                        detailActionItems = result.value.actionItems
+                                        detailInsightKeywords = result.value.keywords
+                                        detailTone = result.value.tone
+                                    }
                                     is ApiResult.Error -> detailSummaryError = result.message
                                 }
                             }
@@ -1250,6 +1276,10 @@ private fun TingjianApp() {
                     },
                     onClearSummary = {
                         detailSummary = ""
+                        detailHighlights = emptyList()
+                        detailActionItems = emptyList()
+                        detailInsightKeywords = emptyList()
+                        detailTone = "暂无"
                         detailSummaryError = ""
                     },
                     onBack = {
@@ -1258,6 +1288,10 @@ private fun TingjianApp() {
                         detailError = ""
                         detailActionError = ""
                         detailSummary = ""
+                        detailHighlights = emptyList()
+                        detailActionItems = emptyList()
+                        detailInsightKeywords = emptyList()
+                        detailTone = "暂无"
                         detailSummaryError = ""
                         selected = null
                     },

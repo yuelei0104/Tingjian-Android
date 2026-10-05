@@ -171,7 +171,9 @@ internal fun DetailScreen(record: Conversation, large: Boolean, highContrast: Bo
     keywords: List<String>,
     loading: Boolean, loadError: String, onRetry: () -> Unit,
     actionRunning: Boolean, actionError: String,
-    summary: String, summaryLoading: Boolean, summaryError: String,
+    summary: String, highlights: List<String>, actionItems: List<String>,
+    insightKeywords: List<String>, tone: String,
+    summaryLoading: Boolean, summaryError: String,
     onSummarize: () -> Unit, onClearSummary: () -> Unit,
     onBack: () -> Unit,
     onRename: (String) -> Unit, onDelete: () -> Unit) {
@@ -287,6 +289,31 @@ internal fun DetailScreen(record: Conversation, large: Boolean, highContrast: Bo
                     else -> "还没有摘要。点击下方按钮开始整理。"
                 }, color = if (summary.isNotBlank()) ink else secondary,
                     fontSize = 13.sp, lineHeight = 20.sp)
+                if (summary.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("语气：$tone", color = secondary, fontSize = 12.sp)
+                    if (highlights.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("重点", color = ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        highlights.forEach { item ->
+                            Text("• $item", color = ink, fontSize = 12.sp, lineHeight = 18.sp,
+                                modifier = Modifier.padding(top = 3.dp))
+                        }
+                    }
+                    if (actionItems.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("待办", color = ink, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        actionItems.forEach { item ->
+                            Text("☐ $item", color = ink, fontSize = 12.sp, lineHeight = 18.sp,
+                                modifier = Modifier.padding(top = 3.dp))
+                        }
+                    }
+                    if (insightKeywords.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("关键词：${insightKeywords.joinToString(" · ")}",
+                            color = teal, fontSize = 12.sp, lineHeight = 18.sp)
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onSummarize,

@@ -175,7 +175,12 @@ data class HistorySummaryResponse(
     val sessionId: String,
     val summary: String,
     val messageCount: Int,
-    val generatedBy: String
+    val generatedBy: String,
+    val highlights: List<String> = emptyList(),
+    val actionItems: List<String> = emptyList(),
+    val keywords: List<String> = emptyList(),
+    val tone: String = "暂无",
+    val cached: Boolean = false
 )
 
 data class AccountSessionResponse(

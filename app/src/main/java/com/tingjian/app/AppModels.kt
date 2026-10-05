@@ -246,11 +246,37 @@ internal fun isNetworkAvailable(context: Context): Boolean {
     return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
 }
 
-internal fun localSummary(record: Conversation): String {
+internal data class ConversationInsight(
+    val summary: String,
+    val highlights: List<String>,
+    val actionItems: List<String>,
+    val keywords: List<String>,
+    val tone: String
+)
+
+internal fun localConversationInsight(record: Conversation): ConversationInsight {
     val messages = record.transcript.map { it.second.trim() }.filter { it.isNotEmpty() }
-    if (messages.isEmpty()) return "这段会话暂时没有可供整理的文字。"
-    val focus = messages.take(2).joinToString("；").take(90)
-    val ending = messages.last().take(45)
-    return "会话共 ${messages.size} 条文字。主要内容：$focus。" +
-        if (messages.size > 2) "最后提到：$ending。" else ""
+    if (messages.isEmpty()) return ConversationInsight(
+        "这段会话暂时没有可供整理的文字。", emptyList(), emptyList(), emptyList(), "暂无")
+    val highlights = messages.distinct().take(3).map { it.take(100) }
+    val actionPattern = Regex("请|需要|记得|安排|提交|完成|确认|提醒|明天|后天|下周|todo|must|need to", RegexOption.IGNORE_CASE)
+    val actionItems = messages.filter { actionPattern.containsMatchIn(it) }.distinct().take(5)
+    val keywordPattern = Regex("[\\p{IsHan}]{2,8}|[A-Za-z]{4,}")
+    val stopWords = setOf("好的", "可以", "这个", "那个", "我们", "已经", "然后", "需要")
+    val keywords = messages.flatMap { keywordPattern.findAll(it).map { match -> match.value }.toList() }
+        .filterNot { it.lowercase() in stopWords }.groupingBy { it.lowercase() }.eachCount()
+        .entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .take(5).map { it.key }
+    val joined = messages.joinToString(" ")
+    val tone = when {
+        listOf("谢谢", "很好", "成功", "完成", "great", "thanks").any(joined::contains) -> "积极"
+        listOf("失败", "错误", "担心", "无法", "问题", "error", "failed").any(joined::contains) -> "需关注"
+        messages.count { '?' in it || '？' in it } * 2 >= messages.size -> "待确认"
+        else -> "平稳"
+    }
+    val summary = "会话共 ${messages.size} 条文字。主要内容：${highlights.joinToString("；")}。" +
+        if (actionItems.isEmpty()) "" else "识别到 ${actionItems.size} 项待办。"
+    return ConversationInsight(summary, highlights, actionItems, keywords, tone)
 }
+
+internal fun localSummary(record: Conversation): String = localConversationInsight(record).summary

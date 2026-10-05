@@ -6,15 +6,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,6 +46,13 @@ import com.tingjian.app.ui.theme.TingjianTheme
 import com.tingjian.app.data.ApiResult
 import com.tingjian.app.network.AiSuggestionRequest
 import com.tingjian.app.network.AiSuggestionResponse
+import com.tingjian.app.speech.AndroidSpeechRecognitionProvider
+import com.tingjian.app.speech.AndroidSpeechSynthesisProvider
+import com.tingjian.app.speech.RecognitionFailureKind
+import com.tingjian.app.speech.SpeechRecognitionProvider
+import com.tingjian.app.speech.SpeechStartResult
+import com.tingjian.app.speech.SpeechSynthesisProvider
+import com.tingjian.app.speech.SpeechSynthesisRequest
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -104,10 +103,8 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     var pausedAt by remember { mutableLongStateOf(0L) }
     var totalPausedMillis by remember { mutableLongStateOf(0L) }
     var elapsedSeconds by remember(sessionStartedAt) { mutableLongStateOf(0L) }
-    var recognizer by remember { mutableStateOf<SpeechRecognizer?>(null) }
     var recognitionGeneration by remember { mutableIntStateOf(0) }
     var showServiceHelp by remember { mutableStateOf(false) }
-    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     var ttsReady by remember { mutableStateOf(false) }
     var playingId by remember { mutableStateOf<String?>(null) }
     var playbackNotice by remember { mutableStateOf("") }
@@ -122,6 +119,8 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
+    val recognitionProvider = remember(context) { AndroidSpeechRecognitionProvider(context) }
+    val synthesisProvider = remember(context) { AndroidSpeechSynthesisProvider(context) }
 
     fun generateSuggestion(action: String, retryRequest: AiSuggestionRequest? = null) {
         val request = retryRequest ?: AiSuggestionRequest(
@@ -299,8 +298,8 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     confirmFinish = false
                     continuousListening = false
                     recognitionGeneration++
-                    recognizer?.cancel()
-                    tts?.stop()
+                    recognitionProvider.cancel()
+                    synthesisProvider.stop()
                     playingId = null
                     onFinish()
                 }) { Text("结束并保存", color = teal) }
@@ -312,52 +311,62 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
 
     fun stopPlayback() {
         playingId = null
-        tts?.stop()
+        synthesisProvider.stop()
         status = "已停止播放"
     }
 
     fun playText(text: String) {
         // 播音前取消本轮识别；旧识别回调不得覆盖播放状态或写入回声。
         recognitionGeneration++
-        recognizer?.cancel()
+        recognitionProvider.cancel()
         busy = false
         listening = false
         partial = ""
         playingId = null
         lastPlaybackText = text
-        val engine = tts
-        if (engine == null || !ttsReady) {
+        if (!ttsReady) {
             playbackNotice = "无法播报：请在手机设置中安装并启用文字转语音引擎。"
             status = "文字已发送，播报不可用"
             return
         }
-        val locale = when (voiceMode) {
-            "中文" -> Locale.SIMPLIFIED_CHINESE
-            "English" -> Locale.US
-            else -> if (text.any { it in '\u4e00'..'\u9fff' }) Locale.SIMPLIFIED_CHINESE else Locale.US
-        }
-        if (engine.setLanguage(locale) < 0) {
-            playbackNotice = "当前语音引擎缺少对应语言的语音数据。"
-            status = "文字已发送，播报不可用"
-            return
-        }
-        val styleRate = when (voiceStyle) { "清晰" -> 0.9f; "舒缓" -> 0.78f; else -> 1.0f }
-        engine.setSpeechRate((styleRate * ttsSpeed).coerceIn(0.5f, 1.5f))
-        engine.setPitch(when (voiceStyle) { "清晰" -> 1.03f; "舒缓" -> 0.96f; else -> 1.0f })
         playbackNotice = ""
-        val id = System.nanoTime().toString()
-        playingId = id
-        status = "正在播报…"
-        if (engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.ERROR) {
-            playingId = null
-            playbackNotice = "播报失败，请检查系统语音引擎后重试。"
-            status = "文字已发送，播报失败"
+        val result = synthesisProvider.speak(
+            SpeechSynthesisRequest(text, voiceMode, voiceStyle, ttsSpeed),
+            object : SpeechSynthesisProvider.Listener {
+                override fun onStarted(utteranceId: String) {
+                    if (playingId == utteranceId) status = "正在播报…"
+                }
+
+                override fun onCompleted(utteranceId: String) {
+                    if (playingId == utteranceId) {
+                        playingId = null
+                        status = "播报完成"
+                    }
+                }
+
+                override fun onFailure(utteranceId: String, message: String) {
+                    if (playingId == utteranceId) {
+                        playingId = null
+                        playbackNotice = message
+                        status = "播报失败"
+                    }
+                }
+            })
+        when (result) {
+            is SpeechStartResult.Started -> {
+                playingId = result.utteranceId
+                status = "正在播报…"
+            }
+            is SpeechStartResult.Error -> {
+                playbackNotice = result.message
+                status = "文字已发送，播报不可用"
+            }
         }
     }
 
     fun startRecognition() {
         if (!continuousListening || busy || playingId != null || paused) return
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+        if (!recognitionProvider.isAvailable()) {
             continuousListening = false
             status = "未找到语音识别服务。请检查设备是否安装并启用了语音识别服务。"
             showServiceHelp = true
@@ -366,55 +375,38 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
         showServiceHelp = false
         try {
             val generation = ++recognitionGeneration
-            val service = recognizer ?: SpeechRecognizer.createSpeechRecognizer(context).also {
-                recognizer = it
-            }
-            service.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
+            partial = ""
+            busy = true
+            listening = true
+            connectionState = "已连接"
+            status = "正在启动持续监听…"
+            recognitionProvider.start(language, object : SpeechRecognitionProvider.Listener {
+                override fun onReady() {
                     if (generation == recognitionGeneration) status = "持续监听中 · 请说话"
                 }
-                override fun onBeginningOfSpeech() {
+                override fun onSpeechStarted() {
                     if (generation == recognitionGeneration) status = "持续监听中 · 正在聆听"
                 }
-                override fun onRmsChanged(rmsdB: Float) = Unit
-                override fun onBufferReceived(buffer: ByteArray?) = Unit
-                override fun onEndOfSpeech() {
+                override fun onSpeechEnded() {
                     if (generation != recognitionGeneration) return
                     listening = false; status = "正在生成字幕…"
                 }
-                override fun onError(error: Int) {
+                override fun onFailure(failure: com.tingjian.app.speech.RecognitionFailure) {
                     if (generation != recognitionGeneration) return
                     busy = false
                     listening = false
                     partial = ""
-                    if (error == SpeechRecognizer.ERROR_NETWORK ||
-                        error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT) connectionState = "重连中"
-                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    if (failure.kind == RecognitionFailureKind.NETWORK) connectionState = "重连中"
+                    if (failure.kind == RecognitionFailureKind.PERMISSION) {
                         permissionDenied = true
                         continuousListening = false
                     }
-                    restartDelayMillis = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH,
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> 250L
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 800L
-                        SpeechRecognizer.ERROR_NETWORK,
-                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> 1500L
-                        else -> 1000L
-                    }
-                    status = when (error) {
-                        SpeechRecognizer.ERROR_NO_MATCH -> "持续监听中…"
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "持续监听中…"
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "没有麦克风权限，请在系统设置中允许。"
-                        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
-                            "网络异常，正在自动重连…"
-                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "识别服务正忙，正在自动重试…"
-                        else -> "识别暂停（错误 $error），正在自动恢复…"
-                    }
+                    restartDelayMillis = failure.retryDelayMillis
+                    status = failure.message
                 }
-                override fun onResults(results: Bundle?) {
+                override fun onResult(text: String) {
                     if (generation != recognitionGeneration) return
-                    val recognized = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull().orEmpty()
+                    val recognized = text
                     if (recognized.isNotBlank()) {
                         val line = ChatLine(recognized, false)
                         lines.add(line)
@@ -443,27 +435,11 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     status = if (recognized.isBlank()) "持续监听中…"
                         else "字幕已生成，继续监听中…"
                 }
-                override fun onPartialResults(partialResults: Bundle?) {
+                override fun onPartial(text: String) {
                     if (generation != recognitionGeneration) return
-                    partial = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.firstOrNull().orEmpty()
+                    partial = text
                 }
-                override fun onEvent(eventType: Int, params: Bundle?) = Unit
             })
-            val request = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                when (language) {
-                    "中文" -> putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-                    "English" -> putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
-                }
-            }
-            partial = ""
-            busy = true
-            listening = true
-            connectionState = "已连接"
-            status = "正在启动持续监听…"
-            service.startListening(request)
         } catch (e: Exception) {
             busy = false
             listening = false
@@ -514,51 +490,23 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                 }) { Text("暂不使用") }
             })
     }
-    DisposableEffect(context) {
-        val main = Handler(Looper.getMainLooper())
+    DisposableEffect(synthesisProvider) {
         var disposed = false
-        val engine = TextToSpeech(context) { result ->
-            main.post {
-                if (!disposed) {
-                    ttsReady = result == TextToSpeech.SUCCESS
-                    if (!ttsReady) playbackNotice = "系统语音引擎不可用，仍可发送文字。"
-                }
+        synthesisProvider.initialize { ready ->
+            if (!disposed) {
+                ttsReady = ready
+                if (!ready) playbackNotice = "系统语音引擎不可用，仍可发送文字。"
             }
         }
-        tts = engine
-        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String) = Unit
-            override fun onDone(utteranceId: String) {
-                main.post {
-                    if (!disposed && playingId == utteranceId) {
-                        playingId = null
-                        status = "播报完成"
-                    }
-                }
-            }
-            override fun onError(utteranceId: String) {
-                main.post {
-                    if (!disposed && playingId == utteranceId) {
-                        playingId = null
-                        playbackNotice = "播报失败，请检查系统语音引擎。"
-                        status = "播报失败"
-                    }
-                }
-            }
-        })
         onDispose {
             disposed = true
-            engine.stop()
-            engine.shutdown()
-            tts = null
+            synthesisProvider.release()
         }
     }
     DisposableEffect(Unit) {
         onDispose {
             recognitionGeneration++
-            recognizer?.cancel()
-            recognizer?.destroy()
-            recognizer = null
+            recognitionProvider.release()
         }
     }
     DisposableEffect(context) {
@@ -566,7 +514,7 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP && (continuousListening || listening || busy)) {
                 recognitionGeneration++
-                recognizer?.cancel()
+                recognitionProvider.cancel()
                 listening = false
                 busy = false
                 partial = ""
@@ -632,7 +580,7 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     if (willPause) {
                         pausedAt = System.currentTimeMillis()
                         recognitionGeneration++
-                        recognizer?.cancel()
+                        recognitionProvider.cancel()
                         listening = false
                         busy = false
                         partial = ""
@@ -718,7 +666,7 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     if (continuousListening) {
                         continuousListening = false
                         recognitionGeneration++
-                        recognizer?.cancel()
+                        recognitionProvider.cancel()
                         listening = false
                         busy = false
                         partial = ""
