@@ -8,8 +8,25 @@ data class ApiEnvelope<T>(
     val timestamp: String
 )
 
-data class RegisterRequest(val email: String, val password: String, val displayName: String)
+data class RegisterRequest(
+    val email: String,
+    val password: String,
+    val displayName: String,
+    val verificationId: String,
+    val verificationCode: String
+)
 data class LoginRequest(val email: String, val password: String)
+data class EmailVerificationRequest(val email: String)
+data class PasswordResetRequest(
+    val email: String,
+    val verificationId: String,
+    val verificationCode: String,
+    val newPassword: String
+)
+data class VerificationChallengeResponse(
+    val verificationId: String,
+    val expiresAt: String
+)
 data class RefreshTokenRequest(val refreshToken: String)
 data class AccountDeleteRequest(val password: String)
 data class AccountProfileUpdateRequest(val displayName: String)

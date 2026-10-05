@@ -199,12 +199,17 @@ internal fun UsageCard(title: String, value: String, progress: Float, note: Stri
 internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repository = remember { NetworkModule.repository }
-    var registerMode by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf("login") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
+    var verificationId by remember { mutableStateOf("") }
+    var verificationCode by remember { mutableStateOf("") }
+    var codeState by remember { mutableStateOf("idle") }
+    var codeCooldownSeconds by remember { mutableIntStateOf(0) }
     var consent by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var notice by remember { mutableStateOf("") }
     var legal by remember { mutableStateOf("") }
     var loginState by remember { mutableStateOf("idle") }
     if (legal.isNotEmpty()) {
@@ -225,14 +230,22 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
         Spacer(Modifier.height(28.dp))
         BrandMark()
         Spacer(Modifier.height(30.dp))
-        Pill(if (registerMode) "创建账户" else "账户登录", highlighted = true)
+        Pill(when (mode) {
+            "register" -> "创建账户"
+            "reset" -> "找回密码"
+            else -> "账户登录"
+        }, highlighted = true)
         Spacer(Modifier.height(17.dp))
-        Title("欢迎使用听见", if (registerMode) "注册后即可同步你的服务数据。" else "登录后连接听见后端服务。")
+        Title("欢迎使用听见", when (mode) {
+            "register" -> "验证邮箱并注册，即可同步你的服务数据。"
+            "reset" -> "通过邮箱验证码设置新密码。"
+            else -> "登录后连接听见后端服务。"
+        })
         Spacer(Modifier.height(24.dp))
         Surface(color = white, shape = RoundedCornerShape(22.dp),
             border = BorderStroke(1.dp, divider), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp)) {
-                if (registerMode) {
+                if (mode == "register") {
                     OutlinedTextField(value = displayName, onValueChange = {
                         displayName = it.take(40)
                         error = ""
@@ -243,17 +256,82 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                 OutlinedTextField(value = email, onValueChange = {
                     email = it.take(254)
                     error = ""
+                    notice = ""
+                    verificationId = ""
+                    verificationCode = ""
                 }, label = { Text("邮箱") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(value = password, onValueChange = {
-                    password = it.take(72)
+                    password = it.take(128)
                     error = ""
-                }, label = { Text("密码（至少 8 位）") }, singleLine = true,
+                }, label = { Text(if (mode == "reset") "新密码（至少 8 位）" else "密码（至少 8 位）") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth())
+                if (mode == "register" || mode == "reset") {
+                    Spacer(Modifier.height(12.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = verificationCode,
+                            onValueChange = {
+                                verificationCode = it.filter(Char::isDigit).take(6)
+                                error = ""
+                            },
+                            label = { Text("6 位邮箱验证码") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                if (email.isBlank() || !email.contains('@')) {
+                                    error = "请先填写有效邮箱"
+                                    return@OutlinedButton
+                                }
+                                codeState = "loading"
+                                error = ""
+                                notice = ""
+                                scope.launch {
+                                    val result = if (mode == "register") {
+                                        repository.requestRegistrationCode(email)
+                                    } else {
+                                        repository.requestPasswordResetCode(email)
+                                    }
+                                    when (result) {
+                                        is ApiResult.Success -> {
+                                            verificationId = result.value.verificationId
+                                            codeState = "sent"
+                                            codeCooldownSeconds = 60
+                                            notice = "验证码已发送，10 分钟内有效"
+                                            while (codeCooldownSeconds > 0) {
+                                                delay(1_000)
+                                                codeCooldownSeconds--
+                                            }
+                                        }
+                                        is ApiResult.Error -> {
+                                            codeState = "failed"
+                                            error = result.message
+                                        }
+                                    }
+                                }
+                            },
+                            enabled = codeState != "loading" && codeCooldownSeconds == 0
+                        ) {
+                            Text(when {
+                                codeState == "loading" -> "发送中"
+                                codeCooldownSeconds > 0 -> "${codeCooldownSeconds}s"
+                                else -> "发送验证码"
+                            })
+                        }
+                    }
+                }
+                if (notice.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(notice, color = teal, fontSize = 12.sp)
+                }
                 if (error.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(error, color = secondary, fontSize = 12.sp)
@@ -278,22 +356,40 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Button(onClick = {
                     if (email.isBlank() || password.length < 8 ||
-                        (registerMode && displayName.isBlank())) {
-                        error = "请填写有效邮箱、至少 8 位密码${if (registerMode) "和昵称" else ""}"
+                        (mode == "register" && displayName.isBlank()) ||
+                        (mode != "login" && (verificationId.isBlank() || verificationCode.length != 6))) {
+                        error = when (mode) {
+                            "register" -> "请填写邮箱、昵称、至少 8 位密码并获取 6 位验证码"
+                            "reset" -> "请填写邮箱、新密码并获取 6 位验证码"
+                            else -> "请填写有效邮箱和至少 8 位密码"
+                        }
                         return@Button
                     }
                     loginState = "loading"
                     error = ""
                     scope.launch {
-                        val result = if (registerMode) {
-                            repository.register(email, password, displayName)
-                        } else {
-                            repository.login(email, password)
+                        val result = when (mode) {
+                            "register" -> repository.register(
+                                email, password, displayName, verificationId, verificationCode
+                            )
+                            "reset" -> repository.resetPassword(
+                                email, verificationId, verificationCode, password
+                            )
+                            else -> repository.login(email, password)
                         }
                         when (result) {
                             is ApiResult.Success -> {
                                 loginState = "success"
-                                onLogin()
+                                if (mode == "reset") {
+                                    mode = "login"
+                                    password = ""
+                                    verificationCode = ""
+                                    verificationId = ""
+                                    notice = "密码已重置，请使用新密码登录"
+                                    loginState = "idle"
+                                } else {
+                                    onLogin()
+                                }
                             }
                             is ApiResult.Error -> {
                                 loginState = "failed"
@@ -305,14 +401,33 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = teal)) {
-                    Text(if (loginState == "loading") "请稍候…" else if (registerMode) "注册并登录" else "登录")
+                    Text(if (loginState == "loading") "请稍候…" else when (mode) {
+                        "register" -> "注册并登录"
+                        "reset" -> "重置密码"
+                        else -> "登录"
+                    })
                 }
                 TextButton(onClick = {
-                    registerMode = !registerMode
+                    mode = if (mode == "register") "login" else "register"
                     error = ""
+                    notice = ""
+                    verificationId = ""
+                    verificationCode = ""
                 }, modifier = Modifier.align(Alignment.CenterHorizontally),
                     enabled = loginState != "loading") {
-                    Text(if (registerMode) "已有账户？返回登录" else "没有账户？立即注册", color = teal)
+                    Text(if (mode == "register") "已有账户？返回登录" else "没有账户？立即注册", color = teal)
+                }
+                if (mode != "register") {
+                    TextButton(onClick = {
+                        mode = if (mode == "reset") "login" else "reset"
+                        error = ""
+                        notice = ""
+                        verificationId = ""
+                        verificationCode = ""
+                    }, modifier = Modifier.align(Alignment.CenterHorizontally),
+                        enabled = loginState != "loading") {
+                        Text(if (mode == "reset") "返回登录" else "忘记密码？", color = teal)
+                    }
                 }
             }
         }

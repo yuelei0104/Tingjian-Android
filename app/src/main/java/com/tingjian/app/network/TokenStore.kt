@@ -11,10 +11,16 @@ class TokenStore(context: Context) : TokenProvider {
     private val preferences = context.applicationContext.getSharedPreferences(
         "tingjian_auth", Context.MODE_PRIVATE
     )
+    private val cipher = TokenCipher()
 
-    override fun accessToken(): String? = preferences.getString(KEY_ACCESS_TOKEN, null)
+    init {
+        migratePlaintextToken(KEY_ACCESS_TOKEN)
+        migratePlaintextToken(KEY_REFRESH_TOKEN)
+    }
 
-    override fun refreshToken(): String? = preferences.getString(KEY_REFRESH_TOKEN, null)
+    override fun accessToken(): String? = readToken(KEY_ACCESS_TOKEN)
+
+    override fun refreshToken(): String? = readToken(KEY_REFRESH_TOKEN)
 
     fun displayName(): String? = preferences.getString(KEY_DISPLAY_NAME, null)
 
@@ -23,9 +29,11 @@ class TokenStore(context: Context) : TokenProvider {
     fun isLoggedIn(): Boolean = !accessToken().isNullOrBlank() && !refreshToken().isNullOrBlank()
 
     fun save(response: AuthTokenResponse) {
+        val encryptedAccess = cipher.encrypt(response.accessToken)
+        val encryptedRefresh = cipher.encrypt(response.refreshToken)
         preferences.edit()
-            .putString(KEY_ACCESS_TOKEN, response.accessToken)
-            .putString(KEY_REFRESH_TOKEN, response.refreshToken)
+            .putString(KEY_ACCESS_TOKEN, encryptedAccess)
+            .putString(KEY_REFRESH_TOKEN, encryptedRefresh)
             .putString(KEY_ACCESS_EXPIRES_AT, response.accessExpiresAt)
             .putString(KEY_REFRESH_EXPIRES_AT, response.refreshExpiresAt)
             .putString(KEY_USER_ID, response.user.id)
@@ -44,6 +52,21 @@ class TokenStore(context: Context) : TokenProvider {
 
     fun clear() {
         preferences.edit().clear().apply()
+    }
+
+    private fun readToken(key: String): String? {
+        val stored = preferences.getString(key, null) ?: return null
+        return runCatching { cipher.decrypt(stored) }
+            .onFailure { clear() }
+            .getOrNull()
+    }
+
+    private fun migratePlaintextToken(key: String) {
+        val stored = preferences.getString(key, null) ?: return
+        if (stored.startsWith("v1:")) return
+        runCatching { cipher.encrypt(stored) }
+            .onSuccess { preferences.edit().putString(key, it).apply() }
+            .onFailure { clear() }
     }
 
     private companion object {

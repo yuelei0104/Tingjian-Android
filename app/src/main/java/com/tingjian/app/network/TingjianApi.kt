@@ -18,6 +18,19 @@ interface TingjianApi {
     @POST("api/auth/login")
     suspend fun login(@Body request: LoginRequest): ApiEnvelope<AuthTokenResponse>
 
+    @POST("api/auth/email-verification/request")
+    suspend fun requestRegistrationCode(
+        @Body request: EmailVerificationRequest
+    ): ApiEnvelope<VerificationChallengeResponse>
+
+    @POST("api/auth/password/forgot")
+    suspend fun requestPasswordReset(
+        @Body request: EmailVerificationRequest
+    ): ApiEnvelope<VerificationChallengeResponse>
+
+    @POST("api/auth/password/reset")
+    suspend fun resetPassword(@Body request: PasswordResetRequest): ApiEnvelope<Unit>
+
     @POST("api/auth/refresh")
     suspend fun refresh(@Body request: RefreshTokenRequest): ApiEnvelope<AuthTokenResponse>
 
