@@ -45,9 +45,7 @@ import com.tingjian.app.network.UserPreferenceResponse
 import com.tingjian.app.network.UserPreferenceUpdateRequest
 import com.tingjian.app.network.UsageResponse
 import com.tingjian.app.network.VerificationChallengeResponse
-import retrofit2.HttpException
-import java.io.IOException
-import org.json.JSONObject
+import kotlinx.coroutines.CancellationException
 
 class TingjianRepository internal constructor(
     private val api: TingjianApi,
@@ -314,13 +312,15 @@ class TingjianRepository internal constructor(
         val envelope = block()
         val data = envelope.data
         if (data != null) ApiResult.Success(data)
-        else ApiResult.Error(envelope.message.ifBlank { "服务器未返回数据" })
-    } catch (exception: HttpException) {
-        ApiResult.Error(serverError(exception), exception.code(), exception)
-    } catch (exception: IOException) {
-        ApiResult.Error("无法连接服务器，请检查网络和服务器地址", cause = exception)
-    } catch (exception: Exception) {
-        ApiResult.Error(exception.message ?: "请求失败", cause = exception)
+        else ApiResult.Error(
+            message = envelope.message.ifBlank { "服务器未返回数据" },
+            requestId = envelope.requestId,
+            serverCode = envelope.code
+        )
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Throwable) {
+        ApiErrorMapper.from(exception)
     }
 
     private suspend fun callEmpty(
@@ -328,19 +328,9 @@ class TingjianRepository internal constructor(
     ): ApiResult<Unit> = try {
         block()
         ApiResult.Success(Unit)
-    } catch (exception: HttpException) {
-        ApiResult.Error(serverError(exception), exception.code(), exception)
-    } catch (exception: IOException) {
-        ApiResult.Error("无法连接服务器，请检查网络和服务器地址", cause = exception)
-    } catch (exception: Exception) {
-        ApiResult.Error(exception.message ?: "请求失败", cause = exception)
-    }
-
-    private fun serverError(exception: HttpException): String {
-        val body = runCatching { exception.response()?.errorBody()?.string() }.getOrNull()
-        val message = runCatching {
-            body?.let { JSONObject(it).optString("message") }
-        }.getOrNull()
-        return message?.takeIf { it.isNotBlank() } ?: "请求失败（${exception.code()}）"
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Throwable) {
+        ApiErrorMapper.from(exception)
     }
 }
