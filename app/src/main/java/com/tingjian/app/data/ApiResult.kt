@@ -4,6 +4,8 @@ enum class ApiErrorKind {
     VALIDATION,
     AUTHENTICATION,
     RATE_LIMITED,
+    QUOTA,
+    SERVICE_UNAVAILABLE,
     SERVER,
     TIMEOUT,
     OFFLINE,

@@ -95,6 +95,11 @@ object NetworkModule {
         return FallbackSpeechRecognitionProvider(cloud, device)
     }
 
+    internal fun diagnostics(): BackendEndpointDiagnostics = backendEndpointDiagnostics(
+        if (initialized) apiBaseUrl else normalizedBaseUrl(BuildConfig.API_BASE_URL),
+        BuildConfig.CLOUD_ASR_ENABLED
+    )
+
     private fun normalizedBaseUrl(value: String): String {
         val trimmed = value.trim()
         require(trimmed.startsWith("http://") || trimmed.startsWith("https://")) {

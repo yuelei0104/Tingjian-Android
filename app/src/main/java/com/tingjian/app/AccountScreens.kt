@@ -53,6 +53,7 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.tingjian.app.data.ApiResult
+import com.tingjian.app.network.BackendRouteMode
 import com.tingjian.app.network.NetworkModule
 
 @Composable
@@ -171,7 +172,7 @@ private fun PreferenceSwitch(
 }
 
 private fun formatUsageValue(code: String, value: Long, unit: String): String =
-    if (code == "CAPTION_SECONDS") {
+    if (code == "CAPTION_SECONDS" || code == "ASR_SECONDS") {
         if (value >= 60) "${value / 60} 分钟" else "$value 秒"
     } else {
         "$value $unit"
@@ -509,6 +510,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     autoSummary: Boolean, onAutoSummaryChange: (Boolean) -> Unit,
     onLargeChange: (Boolean) -> Unit, onLeave: () -> Unit) {
     val context = LocalContext.current
+    val backendDiagnostics = remember { NetworkModule.diagnostics() }
     var newTerm by remember { mutableStateOf("") }
     var newAlias by remember { mutableStateOf("") }
     var newTermLanguage by remember { mutableStateOf("自动") }
@@ -536,6 +538,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 "language" -> "默认识别语言"
                 "usage" -> "本机使用情况"
                 "service" -> "识别服务状态"
+                "network" -> "后端连接诊断"
                 "terms" -> "我的术语与热词"
                 "phrases" -> "快捷短语管理"
                 "errors" -> "异常状态预览"
@@ -971,6 +974,21 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                             "具体网络需求由设备语音服务决定。"
                     else "当前设备没有可用的语音识别服务。你仍可输入文字并使用设备语音引擎播报。",
                     fontSize = 14.sp, color = ink, lineHeight = 22.sp)
+                "network" -> Column {
+                    Text("连接模式：${backendDiagnostics.mode.label}",
+                        fontSize = 14.sp, color = ink, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("服务地址：${backendDiagnostics.baseUrl}",
+                        fontSize = 13.sp, color = secondary, lineHeight = 20.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text("云端语音：${if (backendDiagnostics.cloudAsrEnabled) "已启用" else "未启用"}",
+                        fontSize = 13.sp, color = secondary)
+                    Spacer(Modifier.height(8.dp))
+                    Text(if (backendDiagnostics.mode == BackendRouteMode.GATEWAY)
+                        "HTTP 与 WebSocket 请求统一通过网关转发。"
+                    else "当前绕过网关直连后端，适合本地回退和排查问题。",
+                        fontSize = 12.sp, color = secondary, lineHeight = 18.sp)
+                }
                 else -> Text("原始录音默认不保存。麦克风权限仅在点击“语音”时请求；系统识别服务" +
                     "可能根据其实现上传音频，具体是否联网取决于设备服务商。应用只保存识别后的文字；" +
                     "登录后会同步会话和个性化数据，可删除单条或清空全部数据。课堂、会议等场景可能" +
@@ -1175,6 +1193,11 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
             dialog = "service"
         }
         Spacer(Modifier.height(10.dp))
+        SettingsItem("后端连接诊断",
+            "${backendDiagnostics.mode.label} · ${backendDiagnostics.baseUrl}") {
+            dialog = "network"
+        }
+        Spacer(Modifier.height(10.dp))
         SettingsItem("异常状态预览", "断网 · 权限 · 额度 · 播报失败") { dialog = "errors" }
         if (demoLoggedIn) {
             Spacer(Modifier.height(10.dp))
@@ -1191,7 +1214,7 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
             }
         }
         Spacer(Modifier.height(22.dp))
-        Text("AI 表达助手、云端同步及用量套餐将在后续版本开放。",
+        Text("AI 表达助手、云端同步和用量额度已支持；云端能力不可用时会自动回退。",
             color = secondary, fontSize = 12.sp, lineHeight = 19.sp)
         Spacer(Modifier.height(10.dp))
         TextButton(onClick = onLeave) { Text("返回欢迎页", color = teal) }

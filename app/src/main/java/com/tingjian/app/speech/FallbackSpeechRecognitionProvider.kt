@@ -82,7 +82,9 @@ class FallbackSpeechRecognitionProvider(
         override fun onFailure(failure: RecognitionFailure) {
             if (currentGeneration != generation) return
             if (fallbackOnFailure) {
-                cloudRetryAfter = clockMillis() + CLOUD_COOLDOWN_MILLIS
+                cloudRetryAfter = clockMillis() +
+                    maxOf(CLOUD_COOLDOWN_MILLIS, failure.retryDelayMillis)
+                target.onFallback(failure)
                 cloud.cancel()
                 startDevice(currentGeneration, language, target)
             } else {

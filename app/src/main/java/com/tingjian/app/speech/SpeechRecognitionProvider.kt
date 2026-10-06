@@ -6,6 +6,8 @@ enum class RecognitionFailureKind {
     NETWORK,
     BUSY,
     PERMISSION,
+    QUOTA,
+    SERVICE_UNAVAILABLE,
     OTHER
 }
 
@@ -23,6 +25,7 @@ interface SpeechRecognitionProvider {
         fun onSpeechEnded()
         fun onPartial(text: String)
         fun onResult(text: String)
+        fun onFallback(failure: RecognitionFailure) {}
         fun onFailure(failure: RecognitionFailure)
     }
 

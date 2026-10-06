@@ -11,4 +11,21 @@ class CloudSpeechRecognitionProviderTest {
             cloudAsrUrl("http://10.0.2.2:8080/", "中英混合")
         )
     }
+
+    @Test
+    fun gatewayUrlUsesSameSpeechRoute() {
+        assertEquals(
+            "ws://10.0.2.2:8088/ws/v1/speech/asr?language=zh-CN",
+            cloudAsrUrl("http://10.0.2.2:8088/", "zh-CN")
+        )
+    }
+
+    @Test
+    fun quotaFailureExplainsAutomaticFallback() {
+        val failure = cloudFailure("USAGE_QUOTA_EXCEEDED", "quota exceeded")
+
+        assertEquals(RecognitionFailureKind.QUOTA, failure.kind)
+        assertEquals(429, failure.code)
+        assertEquals(true, failure.message.contains("设备识别"))
+    }
 }

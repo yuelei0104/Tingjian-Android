@@ -113,6 +113,7 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     var permissionDenied by remember { mutableStateOf(false) }
     var connectionState by remember { mutableStateOf("已连接") }
     var keywordNotice by remember { mutableStateOf("") }
+    var recognitionNotice by remember { mutableStateOf("") }
     var autoScroll by remember(captionFollow) { mutableStateOf(captionFollow) }
     var previousCloudSyncState by remember { mutableStateOf(cloudSyncState) }
     val keywordCooldown = remember { mutableMapOf<String, Long>() }
@@ -179,6 +180,12 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
         if (keywordNotice.isNotEmpty()) {
             delay(4000)
             keywordNotice = ""
+        }
+    }
+    LaunchedEffect(recognitionNotice) {
+        if (recognitionNotice.isNotEmpty()) {
+            delay(6_000)
+            recognitionNotice = ""
         }
     }
 
@@ -391,6 +398,12 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                     if (generation != recognitionGeneration) return
                     listening = false; status = "正在生成字幕…"
                 }
+                override fun onFallback(failure: com.tingjian.app.speech.RecognitionFailure) {
+                    if (generation != recognitionGeneration) return
+                    recognitionNotice = failure.message
+                    connectionState = "设备识别"
+                    status = failure.message
+                }
                 override fun onFailure(failure: com.tingjian.app.speech.RecognitionFailure) {
                     if (generation != recognitionGeneration) return
                     busy = false
@@ -596,8 +609,9 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
                 }) { Text(if (paused) "继续" else "暂停", color = teal, fontSize = 11.sp) }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (keywordNotice.isNotEmpty()) {
-                    Text(keywordNotice,
+                val visibleNotice = keywordNotice.ifEmpty { recognitionNotice }
+                if (visibleNotice.isNotEmpty()) {
+                    Text(visibleNotice,
                         color = if (highContrast) Color.Black else ink,
                         fontSize = if (large) 16.sp else 12.sp,
                         fontWeight = FontWeight.Bold,

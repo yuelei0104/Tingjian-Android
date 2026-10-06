@@ -1,7 +1,7 @@
 package com.tingjian.app.data
 
+import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
-import org.json.JSONObject
 import retrofit2.HttpException
 import java.io.IOException
 import java.net.ConnectException
@@ -10,6 +10,8 @@ import java.net.UnknownHostException
 import javax.net.ssl.SSLException
 
 internal object ApiErrorMapper {
+    private val gson = Gson()
+
     fun from(exception: Throwable): ApiResult.Error {
         if (exception is CancellationException) throw exception
         return when (exception) {
@@ -49,17 +51,24 @@ internal object ApiErrorMapper {
     private fun fromHttp(exception: HttpException): ApiResult.Error {
         val response = exception.response()
         val payload = runCatching {
-            response?.errorBody()?.string()?.takeIf { it.isNotBlank() }?.let(::JSONObject)
+            response?.errorBody()?.string()?.takeIf { it.isNotBlank() }
+                ?.let { gson.fromJson(it, ErrorPayload::class.java) }
         }.getOrNull()
         val httpCode = exception.code()
-        val message = payload?.optString("message")?.takeIf { it.isNotBlank() }
+        val serverCode = payload?.code?.takeIf { it.isNotBlank() }
+        val message = serviceMessage(serverCode)
+            ?: payload?.message?.takeIf { it.isNotBlank() }
             ?: defaultHttpMessage(httpCode)
-        val kind = when (httpCode) {
-            400, 404, 409, 422 -> ApiErrorKind.VALIDATION
-            401, 403 -> ApiErrorKind.AUTHENTICATION
-            429 -> ApiErrorKind.RATE_LIMITED
-            in 500..599 -> ApiErrorKind.SERVER
-            else -> ApiErrorKind.UNKNOWN
+        val kind = when (serverCode) {
+            "USAGE_QUOTA_EXCEEDED" -> ApiErrorKind.QUOTA
+            "USAGE_SERVICE_UNAVAILABLE" -> ApiErrorKind.SERVICE_UNAVAILABLE
+            else -> when (httpCode) {
+                400, 404, 409, 422 -> ApiErrorKind.VALIDATION
+                401, 403 -> ApiErrorKind.AUTHENTICATION
+                429 -> ApiErrorKind.RATE_LIMITED
+                in 500..599 -> ApiErrorKind.SERVER
+                else -> ApiErrorKind.UNKNOWN
+            }
         }
         return ApiResult.Error(
             message = message,
@@ -67,10 +76,16 @@ internal object ApiErrorMapper {
             cause = exception,
             kind = kind,
             retryable = httpCode == 408 || httpCode == 429 || httpCode >= 500,
-            requestId = payload?.optString("requestId")?.takeIf { it.isNotBlank() }
+            requestId = payload?.requestId?.takeIf { it.isNotBlank() }
                 ?: response?.headers()?.get("X-Request-Id"),
-            serverCode = payload?.optString("code")?.takeIf { it.isNotBlank() }
+            serverCode = serverCode
         )
+    }
+
+    private fun serviceMessage(code: String?): String? = when (code) {
+        "USAGE_QUOTA_EXCEEDED" -> "今日云端 AI 或语音额度已用完，仍可使用本机功能"
+        "USAGE_SERVICE_UNAVAILABLE" -> "用量服务暂时不可用，请稍后重试"
+        else -> null
     }
 
     private fun defaultHttpMessage(code: Int): String = when (code) {
@@ -82,4 +97,10 @@ internal object ApiErrorMapper {
         in 500..599 -> "听见服务暂时不可用，请稍后重试"
         else -> "请求失败（$code）"
     }
+
+    private data class ErrorPayload(
+        val requestId: String? = null,
+        val code: String? = null,
+        val message: String? = null
+    )
 }

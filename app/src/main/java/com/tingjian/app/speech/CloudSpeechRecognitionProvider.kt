@@ -35,7 +35,7 @@ class CloudSpeechRecognitionProvider internal constructor(
         cancel()
         val token = tokenStore.accessToken()
         if (token.isNullOrBlank()) {
-            listener.onFailure(cloudFailure("请先登录后再使用云端语音识别。"))
+            listener.onFailure(cloudFailure("AUTH_REQUIRED", "请先登录后再使用云端语音识别。"))
             return
         }
         val currentGeneration = ++generation
@@ -82,14 +82,16 @@ class CloudSpeechRecognitionProvider internal constructor(
                     "ERROR" -> fail(
                         currentGeneration,
                         listener,
-                        data?.optString("message").orEmpty().ifBlank {
-                            "云端语音识别暂时不可用。"
-                        })
+                        cloudFailure(
+                            data?.optString("code").orEmpty(),
+                            data?.optString("message").orEmpty()
+                        ))
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                fail(currentGeneration, listener, "云端识别连接失败，正在切换设备识别…")
+                fail(currentGeneration, listener,
+                    cloudFailure("CLOUD_CONNECT_FAILED", "云端识别连接失败，正在切换设备识别…"))
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -153,7 +155,8 @@ class CloudSpeechRecognitionProvider internal constructor(
                 }
             } catch (_: Exception) {
                 if (isCurrent(currentGeneration)) {
-                    fail(currentGeneration, listener, "录音传输失败，正在切换设备识别…")
+                    fail(currentGeneration, listener,
+                        cloudFailure("CLOUD_SEND_FAILED", "录音传输失败，正在切换设备识别…"))
                 }
             } finally {
                 runCatching { record.stop() }
@@ -175,15 +178,21 @@ class CloudSpeechRecognitionProvider internal constructor(
     private fun fail(
         currentGeneration: Int,
         listener: SpeechRecognitionProvider.Listener,
-        message: String
+        failure: RecognitionFailure
     ) {
         if (!isCurrent(currentGeneration)) return
         cancelled.set(true)
         stopAudio()
         socket?.cancel()
         socket = null
-        publish(currentGeneration) { listener.onFailure(cloudFailure(message)) }
+        publish(currentGeneration) { listener.onFailure(failure) }
     }
+
+    private fun fail(
+        currentGeneration: Int,
+        listener: SpeechRecognitionProvider.Listener,
+        message: String
+    ) = fail(currentGeneration, listener, cloudFailure("CLOUD_ERROR", message))
 
     private fun publish(currentGeneration: Int, action: () -> Unit) {
         main.post { if (currentGeneration == generation) action() }
@@ -204,9 +213,23 @@ internal fun cloudAsrUrl(baseUrl: String, language: String): String =
         "ws/v1/speech/asr?language=" +
         URLEncoder.encode(language, StandardCharsets.UTF_8)
 
-private fun cloudFailure(message: String) = RecognitionFailure(
-    kind = RecognitionFailureKind.NETWORK,
-    code = -100,
-    retryDelayMillis = 1_500L,
-    message = message
-)
+internal fun cloudFailure(code: String, message: String): RecognitionFailure = when (code) {
+    "USAGE_QUOTA_EXCEEDED" -> RecognitionFailure(
+        kind = RecognitionFailureKind.QUOTA,
+        code = 429,
+        retryDelayMillis = 30 * 60 * 1_000L,
+        message = "今日云端语音额度已用完，已切换到设备识别。"
+    )
+    "USAGE_SERVICE_UNAVAILABLE" -> RecognitionFailure(
+        kind = RecognitionFailureKind.SERVICE_UNAVAILABLE,
+        code = 503,
+        retryDelayMillis = 2 * 60 * 1_000L,
+        message = "云端用量服务暂时不可用，已切换到设备识别。"
+    )
+    else -> RecognitionFailure(
+        kind = RecognitionFailureKind.NETWORK,
+        code = -100,
+        retryDelayMillis = 1_500L,
+        message = message.ifBlank { "云端语音识别暂时不可用，已切换到设备识别。" }
+    )
+}
