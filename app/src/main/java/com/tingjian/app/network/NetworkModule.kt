@@ -3,6 +3,10 @@ package com.tingjian.app.network
 import android.content.Context
 import com.tingjian.app.BuildConfig
 import com.tingjian.app.data.TingjianRepository
+import com.tingjian.app.speech.AndroidSpeechRecognitionProvider
+import com.tingjian.app.speech.CloudSpeechRecognitionProvider
+import com.tingjian.app.speech.FallbackSpeechRecognitionProvider
+import com.tingjian.app.speech.SpeechRecognitionProvider
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -22,6 +26,9 @@ object NetworkModule {
     lateinit var realtimeClient: RealtimeMessageClient
         private set
 
+    private lateinit var authenticatedClient: OkHttpClient
+    private lateinit var apiBaseUrl: String
+
     fun initialize(context: Context) {
         if (initialized) return
         synchronized(this) {
@@ -29,6 +36,7 @@ object NetworkModule {
 
             tokenStore = TokenStore(context)
             val baseUrl = normalizedBaseUrl(BuildConfig.API_BASE_URL)
+            apiBaseUrl = baseUrl
             val converter = GsonConverterFactory.create()
 
             val refreshClient = OkHttpClient.Builder()
@@ -65,6 +73,7 @@ object NetworkModule {
                     }
                 }
                 .build()
+            authenticatedClient = client
 
             val api = Retrofit.Builder()
                 .baseUrl(baseUrl)
@@ -77,6 +86,13 @@ object NetworkModule {
             realtimeClient = RealtimeMessageClient(client, baseUrl, tokenStore)
             initialized = true
         }
+    }
+
+    fun speechRecognitionProvider(context: Context): SpeechRecognitionProvider {
+        val device = AndroidSpeechRecognitionProvider(context)
+        if (!initialized || !BuildConfig.CLOUD_ASR_ENABLED) return device
+        val cloud = CloudSpeechRecognitionProvider(authenticatedClient, apiBaseUrl, tokenStore)
+        return FallbackSpeechRecognitionProvider(cloud, device)
     }
 
     private fun normalizedBaseUrl(value: String): String {

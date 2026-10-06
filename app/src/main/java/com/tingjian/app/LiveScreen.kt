@@ -46,7 +46,7 @@ import com.tingjian.app.ui.theme.TingjianTheme
 import com.tingjian.app.data.ApiResult
 import com.tingjian.app.network.AiSuggestionRequest
 import com.tingjian.app.network.AiSuggestionResponse
-import com.tingjian.app.speech.AndroidSpeechRecognitionProvider
+import com.tingjian.app.network.NetworkModule
 import com.tingjian.app.speech.AndroidSpeechSynthesisProvider
 import com.tingjian.app.speech.RecognitionFailureKind
 import com.tingjian.app.speech.SpeechRecognitionProvider
@@ -119,7 +119,7 @@ internal fun LiveScreen(large: Boolean, lines: SnapshotStateList<ChatLine>,
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
-    val recognitionProvider = remember(context) { AndroidSpeechRecognitionProvider(context) }
+    val recognitionProvider = remember(context) { NetworkModule.speechRecognitionProvider(context) }
     val synthesisProvider = remember(context) { AndroidSpeechSynthesisProvider(context) }
 
     fun generateSuggestion(action: String, retryRequest: AiSuggestionRequest? = null) {

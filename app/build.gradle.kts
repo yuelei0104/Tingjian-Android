@@ -6,6 +6,10 @@ plugins {
 val tingjianApiBaseUrl = providers.gradleProperty("TINGJIAN_API_BASE_URL")
     .orElse("http://10.0.2.2:8080/")
     .get()
+val tingjianCloudAsrEnabled = providers.gradleProperty("TINGJIAN_CLOUD_ASR_ENABLED")
+    .orElse("false")
+    .get()
+    .toBoolean()
 
 android {
     namespace = "com.tingjian.app"
@@ -23,6 +27,7 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "API_BASE_URL", "\"$tingjianApiBaseUrl\"")
+        buildConfigField("boolean", "CLOUD_ASR_ENABLED", tingjianCloudAsrEnabled.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
