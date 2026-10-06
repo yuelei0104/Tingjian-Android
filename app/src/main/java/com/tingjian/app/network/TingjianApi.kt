@@ -31,6 +31,14 @@ interface TingjianApi {
     @POST("api/auth/password/reset")
     suspend fun resetPassword(@Body request: PasswordResetRequest): ApiEnvelope<Unit>
 
+    @POST("api/auth/password/forgot/sms")
+    suspend fun requestSmsPasswordReset(
+        @Body request: PhoneVerificationRequest
+    ): ApiEnvelope<VerificationChallengeResponse>
+
+    @POST("api/auth/password/reset/sms")
+    suspend fun resetPasswordBySms(@Body request: SmsPasswordResetRequest): ApiEnvelope<Unit>
+
     @POST("api/auth/refresh")
     suspend fun refresh(@Body request: RefreshTokenRequest): ApiEnvelope<AuthTokenResponse>
 
@@ -58,6 +66,23 @@ interface TingjianApi {
 
     @DELETE("api/v1/account/sessions/{id}")
     suspend fun revokeAccountSession(@Path("id") id: String): ApiEnvelope<Unit>
+
+    @DELETE("api/v1/account/sessions")
+    suspend fun revokeOtherAccountSessions(): ApiEnvelope<Unit>
+
+    @GET("api/v1/account/phone")
+    suspend fun accountPhone(): ApiEnvelope<PhoneBindingResponse>
+
+    @POST("api/v1/account/phone/verification")
+    suspend fun requestPhoneBindingCode(
+        @Body request: PhoneVerificationRequest
+    ): ApiEnvelope<VerificationChallengeResponse>
+
+    @PUT("api/v1/account/phone")
+    suspend fun bindPhone(@Body request: PhoneBindingRequest): ApiEnvelope<PhoneBindingResponse>
+
+    @HTTP(method = "DELETE", path = "api/v1/account/phone", hasBody = true)
+    suspend fun unbindPhone(@Body request: AccountDeleteRequest): ApiEnvelope<Unit>
 
     @GET("api/v1/home")
     suspend fun home(@Query("recentSize") recentSize: Int = 3): ApiEnvelope<HomeResponse>

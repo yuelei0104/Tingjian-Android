@@ -22,6 +22,9 @@ import com.tingjian.app.network.KeywordResponse
 import com.tingjian.app.network.KeywordUpsertRequest
 import com.tingjian.app.network.LoginRequest
 import com.tingjian.app.network.PasswordResetRequest
+import com.tingjian.app.network.PhoneBindingRequest
+import com.tingjian.app.network.PhoneBindingResponse
+import com.tingjian.app.network.PhoneVerificationRequest
 import com.tingjian.app.network.PrivacyDeleteResponse
 import com.tingjian.app.network.PrivacyExportResponse
 import com.tingjian.app.network.QuickPhraseResponse
@@ -35,6 +38,7 @@ import com.tingjian.app.network.SessionMessageResponse
 import com.tingjian.app.network.SessionMessagePageResponse
 import com.tingjian.app.network.SessionRenameRequest
 import com.tingjian.app.network.SessionResponse
+import com.tingjian.app.network.SmsPasswordResetRequest
 import com.tingjian.app.network.TingjianApi
 import com.tingjian.app.network.TokenStore
 import com.tingjian.app.network.UserPreferenceResponse
@@ -89,6 +93,22 @@ class TingjianRepository internal constructor(
         ))
     }
 
+    suspend fun requestSmsPasswordResetCode(
+        phone: String
+    ): ApiResult<VerificationChallengeResponse> =
+        call { api.requestSmsPasswordReset(PhoneVerificationRequest(phone.trim())) }
+
+    suspend fun resetPasswordBySms(
+        phone: String,
+        verificationId: String,
+        verificationCode: String,
+        newPassword: String
+    ): ApiResult<Unit> = callEmpty {
+        api.resetPasswordBySms(SmsPasswordResetRequest(
+            phone.trim(), verificationId, verificationCode.trim(), newPassword
+        ))
+    }
+
     suspend fun refresh(): ApiResult<AuthTokenResponse> {
         val refreshToken = tokenStore.refreshToken()
             ?: return ApiResult.Error("登录状态已失效，请重新登录")
@@ -140,6 +160,30 @@ class TingjianRepository internal constructor(
 
     suspend fun revokeAccountSession(id: String): ApiResult<Unit> =
         callEmpty { api.revokeAccountSession(id) }
+
+    suspend fun revokeOtherAccountSessions(): ApiResult<Unit> =
+        callEmpty { api.revokeOtherAccountSessions() }
+
+    suspend fun accountPhone(): ApiResult<PhoneBindingResponse> =
+        call { api.accountPhone() }
+
+    suspend fun requestPhoneBindingCode(
+        phone: String
+    ): ApiResult<VerificationChallengeResponse> =
+        call { api.requestPhoneBindingCode(PhoneVerificationRequest(phone.trim())) }
+
+    suspend fun bindPhone(
+        phone: String,
+        verificationId: String,
+        verificationCode: String
+    ): ApiResult<PhoneBindingResponse> = call {
+        api.bindPhone(PhoneBindingRequest(
+            phone.trim(), verificationId, verificationCode.trim()
+        ))
+    }
+
+    suspend fun unbindPhone(password: String): ApiResult<Unit> =
+        callEmpty { api.unbindPhone(AccountDeleteRequest(password)) }
 
     suspend fun home(recentSize: Int = 3): ApiResult<HomeResponse> =
         call { api.home(recentSize) }

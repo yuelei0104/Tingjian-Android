@@ -15,6 +15,7 @@ class DataExportJsonTest {
             account = AccountExportResponse(
                 email = "demo@example.com",
                 displayName = "听见用户",
+                phone = "+8613800138000",
                 createdAt = "2026-01-01T10:00:00"
             ),
             conversations = emptyList(),
@@ -48,6 +49,7 @@ class DataExportJsonTest {
 
         assertTrue(json.contains("听见用户"))
         assertTrue(json.contains("demo@example.com"))
+        assertTrue(json.contains("+8613800138000"))
         assertTrue(json.contains("\n"))
     }
 }

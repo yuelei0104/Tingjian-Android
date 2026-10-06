@@ -41,6 +41,7 @@ object NetworkModule {
 
             val client = OkHttpClient.Builder()
                 .pingInterval(20, TimeUnit.SECONDS)
+                .addInterceptor(ClientInfoInterceptor(context))
                 .addInterceptor(AuthHeaderInterceptor(tokenStore))
                 .authenticator(AccessTokenAuthenticator(tokenStore, refreshApi))
                 .apply {

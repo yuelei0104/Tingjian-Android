@@ -33,6 +33,7 @@ internal fun AccountSessionScreen(
     revokingId: String?,
     onRetry: () -> Unit,
     onRevoke: (String) -> Unit,
+    onRevokeOthers: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -64,7 +65,15 @@ internal fun AccountSessionScreen(
         } else if (sessions.isEmpty()) {
             Text("当前没有可管理的登录会话。", color = secondary)
         } else {
-            sessions.forEachIndexed { index, session ->
+            OutlinedButton(
+                onClick = onRevokeOthers,
+                enabled = revokingId == null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("退出其他设备", color = MaterialTheme.colorScheme.error)
+            }
+            Spacer(Modifier.height(12.dp))
+            sessions.forEach { session ->
                 Surface(
                     color = white,
                     shape = RoundedCornerShape(17.dp),
@@ -72,9 +81,14 @@ internal fun AccountSessionScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(17.dp)) {
-                        Text("登录会话 ${index + 1}", color = ink,
+                        Text("${session.deviceName}${if (session.current) "（当前设备）" else ""}", color = ink,
                             fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(6.dp))
+                        Text("${session.platform}${session.appVersion.takeIf { it.isNotBlank() }?.let { " · v$it" } ?: ""}",
+                            color = secondary, fontSize = 12.sp)
+                        if (session.ipAddress.isNotBlank()) {
+                            Text("最近地址：${session.ipAddress}", color = secondary, fontSize = 12.sp)
+                        }
                         Text("最近活动：${displayTime(session.lastActiveAt)}",
                             color = secondary, fontSize = 12.sp)
                         Text("登录时间：${displayTime(session.createdAt)}",
@@ -84,9 +98,9 @@ internal fun AccountSessionScreen(
                         Spacer(Modifier.height(10.dp))
                         OutlinedButton(
                             onClick = { onRevoke(session.id) },
-                            enabled = revokingId == null
+                            enabled = revokingId == null && !session.current
                         ) {
-                            Text(if (revokingId == session.id) "正在撤销…" else "撤销此会话",
+                            Text(if (session.current) "当前会话" else if (revokingId == session.id) "正在撤销…" else "撤销此会话",
                                 color = MaterialTheme.colorScheme.error)
                         }
                     }

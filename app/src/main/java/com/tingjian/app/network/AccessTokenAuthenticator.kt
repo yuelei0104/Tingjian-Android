@@ -31,7 +31,7 @@ internal class AccessTokenAuthenticator(
             val refreshed = runCatching {
                 refreshApi.refresh(RefreshTokenRequest(refreshToken)).execute()
             }.getOrNull() ?: return null
-            if (refreshed.code == 400 || refreshed.code == 401) {
+            if (refreshed.code() == 400 || refreshed.code() == 401) {
                 tokenStore.clear()
                 return null
             }

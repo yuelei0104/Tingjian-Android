@@ -200,6 +200,7 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
     val scope = rememberCoroutineScope()
     val repository = remember { NetworkModule.repository }
     var mode by remember { mutableStateOf("login") }
+    var resetChannel by remember { mutableStateOf("email") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
@@ -253,14 +254,42 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                         modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(12.dp))
                 }
+                if (mode == "reset") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = resetChannel == "email",
+                            onClick = {
+                                resetChannel = "email"
+                                email = ""
+                                verificationId = ""
+                                verificationCode = ""
+                            },
+                            label = { Text("邮箱验证") }
+                        )
+                        FilterChip(
+                            selected = resetChannel == "sms",
+                            onClick = {
+                                resetChannel = "sms"
+                                email = ""
+                                verificationId = ""
+                                verificationCode = ""
+                            },
+                            label = { Text("短信验证") }
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 OutlinedTextField(value = email, onValueChange = {
                     email = it.take(254)
                     error = ""
                     notice = ""
                     verificationId = ""
                     verificationCode = ""
-                }, label = { Text("邮箱") }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                }, label = { Text(if (mode == "reset" && resetChannel == "sms")
+                    "手机号（如 +8613800138000）" else "邮箱") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType =
+                        if (mode == "reset" && resetChannel == "sms") KeyboardType.Phone
+                        else KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(value = password, onValueChange = {
@@ -279,7 +308,7 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                                 verificationCode = it.filter(Char::isDigit).take(6)
                                 error = ""
                             },
-                            label = { Text("6 位邮箱验证码") },
+                            label = { Text("6 位${if (mode == "reset" && resetChannel == "sms") "短信" else "邮箱"}验证码") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f)
@@ -287,8 +316,14 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         OutlinedButton(
                             onClick = {
-                                if (email.isBlank() || !email.contains('@')) {
-                                    error = "请先填写有效邮箱"
+                                val targetValid = if (mode == "reset" && resetChannel == "sms") {
+                                    email.startsWith('+') && email.length in 9..16
+                                } else {
+                                    email.isNotBlank() && email.contains('@')
+                                }
+                                if (!targetValid) {
+                                    error = if (resetChannel == "sms")
+                                        "请填写带国家区号的手机号" else "请先填写有效邮箱"
                                     return@OutlinedButton
                                 }
                                 codeState = "loading"
@@ -297,6 +332,8 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                                 scope.launch {
                                     val result = if (mode == "register") {
                                         repository.requestRegistrationCode(email)
+                                    } else if (resetChannel == "sms") {
+                                        repository.requestSmsPasswordResetCode(email)
                                     } else {
                                         repository.requestPasswordResetCode(email)
                                     }
@@ -360,7 +397,7 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                         (mode != "login" && (verificationId.isBlank() || verificationCode.length != 6))) {
                         error = when (mode) {
                             "register" -> "请填写邮箱、昵称、至少 8 位密码并获取 6 位验证码"
-                            "reset" -> "请填写邮箱、新密码并获取 6 位验证码"
+                            "reset" -> "请填写${if (resetChannel == "sms") "手机号" else "邮箱"}、新密码并获取 6 位验证码"
                             else -> "请填写有效邮箱和至少 8 位密码"
                         }
                         return@Button
@@ -372,9 +409,15 @@ internal fun DemoLoginScreen(onBack: () -> Unit, onLogin: () -> Unit) {
                             "register" -> repository.register(
                                 email, password, displayName, verificationId, verificationCode
                             )
-                            "reset" -> repository.resetPassword(
-                                email, verificationId, verificationCode, password
-                            )
+                            "reset" -> if (resetChannel == "sms") {
+                                repository.resetPasswordBySms(
+                                    email, verificationId, verificationCode, password
+                                )
+                            } else {
+                                repository.resetPassword(
+                                    email, verificationId, verificationCode, password
+                                )
+                            }
                             else -> repository.login(email, password)
                         }
                         when (result) {
@@ -447,7 +490,8 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
     onUpdateProfile: (String) -> Unit,
     onChangePassword: (String, String) -> Unit,
     onClearAccountData: () -> Unit, onDeleteAccount: (String) -> Unit,
-    onUsage: () -> Unit, onAccountSessions: () -> Unit, onExportData: () -> Unit,
+    onUsage: () -> Unit, onAccountSessions: () -> Unit, onPhoneSecurity: () -> Unit,
+    onExportData: () -> Unit,
     onClearHistory: () -> Unit,
     onClearPersonalization: () -> Unit,
     onVoiceModeChange: (String) -> Unit, onVoiceStyleChange: (String) -> Unit,
@@ -977,6 +1021,10 @@ internal fun ProfileScreen(large: Boolean, savedCount: Int, voiceMode: String,
                 confirmPassword = ""
                 passwordError = ""
                 dialog = "password"
+            }
+            Spacer(Modifier.height(10.dp))
+            SettingsItem("手机号安全", "绑定、换绑以及短信找回密码") {
+                onPhoneSecurity()
             }
             Spacer(Modifier.height(10.dp))
             SettingsItem("登录会话管理", "查看并撤销其他登录会话") {

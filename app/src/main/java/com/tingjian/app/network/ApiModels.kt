@@ -17,8 +17,25 @@ data class RegisterRequest(
 )
 data class LoginRequest(val email: String, val password: String)
 data class EmailVerificationRequest(val email: String)
+data class PhoneVerificationRequest(val phone: String)
+data class PhoneBindingRequest(
+    val phone: String,
+    val verificationId: String,
+    val verificationCode: String
+)
+data class PhoneBindingResponse(
+    val bound: Boolean,
+    val maskedPhone: String?,
+    val verifiedAt: String?
+)
 data class PasswordResetRequest(
     val email: String,
+    val verificationId: String,
+    val verificationCode: String,
+    val newPassword: String
+)
+data class SmsPasswordResetRequest(
+    val phone: String,
     val verificationId: String,
     val verificationCode: String,
     val newPassword: String
@@ -202,6 +219,11 @@ data class HistorySummaryResponse(
 
 data class AccountSessionResponse(
     val id: String,
+    val current: Boolean = false,
+    val deviceName: String = "未知设备",
+    val platform: String = "未知系统",
+    val appVersion: String = "",
+    val ipAddress: String = "",
     val createdAt: String,
     val lastActiveAt: String,
     val expiresAt: String
@@ -270,6 +292,7 @@ data class PrivacyDeleteResponse(
 data class AccountExportResponse(
     val email: String,
     val displayName: String,
+    val phone: String?,
     val createdAt: String
 )
 

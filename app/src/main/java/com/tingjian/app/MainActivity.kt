@@ -101,6 +101,7 @@ private fun TingjianApp() {
     var showLogin by remember { mutableStateOf(false) }
     var showUsage by remember { mutableStateOf(false) }
     var showAccountSessions by remember { mutableStateOf(false) }
+    var showPhoneSecurity by remember { mutableStateOf(false) }
     var demoLoggedIn by remember { mutableStateOf(repository.isLoggedIn()) }
     var large by remember { mutableStateOf(preferences.getBoolean("large_text", false)) }
     var voiceMode by remember { mutableStateOf(preferences.getString("voice_mode", "自动") ?: "自动") }
@@ -1112,14 +1113,15 @@ private fun TingjianApp() {
         }
     }
 
-    BackHandler(enabled = entered && (showLogin || showUsage || showAccountSessions)) {
+    BackHandler(enabled = entered && (showLogin || showUsage || showAccountSessions || showPhoneSecurity)) {
         showLogin = false
         showUsage = false
         showAccountSessions = false
+        showPhoneSecurity = false
     }
-    BackHandler(enabled = entered && !showLogin && !showUsage && !showAccountSessions &&
+    BackHandler(enabled = entered && !showLogin && !showUsage && !showAccountSessions && !showPhoneSecurity &&
         selected != null) { selected = null }
-    BackHandler(enabled = entered && !showLogin && !showUsage && !showAccountSessions &&
+    BackHandler(enabled = entered && !showLogin && !showUsage && !showAccountSessions && !showPhoneSecurity &&
         selected == null && tab != 0) { tab = 0 }
 
     if (!entered) {
@@ -1179,7 +1181,7 @@ private fun TingjianApp() {
     }
     Scaffold(containerColor = if (highContrast) Color.White else canvas,
         snackbarHost = { SnackbarHost(snackbarHostState) }, bottomBar = {
-        if (!showLogin && !showUsage && !showAccountSessions && selected == null &&
+        if (!showLogin && !showUsage && !showAccountSessions && !showPhoneSecurity && selected == null &&
             !keyboardVisible) BottomTabs(tab) {
             if (it == 1 && sessionStartedAt == 0L) {
                 sessionStartedAt = System.currentTimeMillis()
@@ -1201,6 +1203,8 @@ private fun TingjianApp() {
                     onRetry = { scope.launch { reloadUsage() } },
                     onBack = { showUsage = false }
                 )
+            } else if (showPhoneSecurity) {
+                AccountPhoneScreen(onBack = { showPhoneSecurity = false })
             } else if (showAccountSessions) {
                 AccountSessionScreen(
                     sessions = accountSessions,
@@ -1215,6 +1219,19 @@ private fun TingjianApp() {
                                 is ApiResult.Success -> {
                                     accountSessions = accountSessions.filterNot { it.id == sessionId }
                                     syncNotice = "登录会话已撤销"
+                                }
+                                is ApiResult.Error -> accountSessionsError = result.message
+                            }
+                            revokingSessionId = null
+                        }
+                    },
+                    onRevokeOthers = {
+                        if (revokingSessionId == null) scope.launch {
+                            revokingSessionId = "others"
+                            when (val result = repository.revokeOtherAccountSessions()) {
+                                is ApiResult.Success -> {
+                                    accountSessions = accountSessions.filter { it.current }
+                                    syncNotice = "其他设备已全部退出"
                                 }
                                 is ApiResult.Error -> accountSessionsError = result.message
                             }
@@ -1613,6 +1630,7 @@ private fun TingjianApp() {
                         showAccountSessions = true
                         scope.launch { reloadAccountSessions() }
                     },
+                    onPhoneSecurity = { showPhoneSecurity = true },
                     onExportData = {
                         if (!dataActionRunning) scope.launch {
                             dataActionRunning = true
