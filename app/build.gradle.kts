@@ -4,7 +4,7 @@ plugins {
 }
 
 val tingjianApiBaseUrl = providers.gradleProperty("TINGJIAN_API_BASE_URL")
-    .orElse("http://10.0.2.2:8080/")
+    .orElse("http://10.0.2.2:8088/")
     .get()
 val tingjianCloudAsrEnabled = providers.gradleProperty("TINGJIAN_CLOUD_ASR_ENABLED")
     .orElse("false")
